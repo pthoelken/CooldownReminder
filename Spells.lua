@@ -137,59 +137,54 @@ end
 
 function U.GetSpellChargesCompat(spellID)
     if C_Spell and C_Spell.GetSpellCharges then
-        local chargeInfo = C_Spell.GetSpellCharges(spellID)
+        local ok, chargeInfo, maxCharges, cooldownStartTime, cooldownDuration, chargeModRate = pcall(C_Spell.GetSpellCharges, spellID)
         if type(chargeInfo) == "table" then
-            return nil, NumberOrNil(chargeInfo.maxCharges), 0, 0, 1
+            return NumberOrNil(chargeInfo.currentCharges),
+                NumberOrNil(chargeInfo.maxCharges),
+                NumberOrZero(chargeInfo.cooldownStartTime or chargeInfo.startTime or chargeInfo.start),
+                NumberOrZero(chargeInfo.cooldownDuration or chargeInfo.duration),
+                NumberOrNil(chargeInfo.chargeModRate or chargeInfo.modRate or chargeInfo.rate) or 1
         end
-        local maxCharges = select(2, C_Spell.GetSpellCharges(spellID))
-        if maxCharges ~= nil then
-            return nil, NumberOrNil(maxCharges), 0, 0, 1
+        if ok and (chargeInfo ~= nil or maxCharges ~= nil) then
+            return NumberOrNil(chargeInfo),
+                NumberOrNil(maxCharges),
+                NumberOrZero(cooldownStartTime),
+                NumberOrZero(cooldownDuration),
+                NumberOrNil(chargeModRate) or 1
         end
     end
 
     if GetSpellCharges then
-        local maxCharges = select(2, GetSpellCharges(spellID))
-        return nil, NumberOrNil(maxCharges), 0, 0, 1
+        local ok, currentCharges, maxCharges, cooldownStartTime, cooldownDuration, chargeModRate = pcall(GetSpellCharges, spellID)
+        if ok then
+            return NumberOrNil(currentCharges),
+                NumberOrNil(maxCharges),
+                NumberOrZero(cooldownStartTime),
+                NumberOrZero(cooldownDuration),
+                NumberOrNil(chargeModRate) or 1
+        end
     end
 end
 
 function U.GetSpellChargeCountsCompat(spellID)
-    if C_Spell and C_Spell.GetSpellCharges then
-        local ok, currentCharges, maxCharges = pcall(function()
-            local chargeInfo = C_Spell.GetSpellCharges(spellID)
-            if type(chargeInfo) == "table" then
-                return NumberOrNil(chargeInfo.currentCharges), NumberOrNil(chargeInfo.maxCharges)
-            end
-            local current, max = C_Spell.GetSpellCharges(spellID)
-            return NumberOrNil(current), NumberOrNil(max)
-        end)
-        if ok and maxCharges then
-            return currentCharges, maxCharges
-        end
-    end
-
-    if GetSpellCharges then
-        local ok, currentCharges, maxCharges = pcall(function()
-            local current, max = GetSpellCharges(spellID)
-            return NumberOrNil(current), NumberOrNil(max)
-        end)
-        if ok then
-            return currentCharges, maxCharges
-        end
+    local currentCharges, maxCharges = U.GetSpellChargesCompat(spellID)
+    if maxCharges then
+        return currentCharges, maxCharges
     end
 end
 
-local function GetActionChargeCounts(slot)
+local function GetActionChargeInfo(slot)
     if not GetActionCharges then
         return
     end
 
-    local ok, currentCharges, maxCharges = pcall(function()
-        local current, max = GetActionCharges(slot)
-        return NumberOrNil(current), NumberOrNil(max)
-    end)
+    local ok, currentCharges, maxCharges, cooldownStartTime, cooldownDuration, chargeModRate = pcall(GetActionCharges, slot)
     if ok then
-        return currentCharges, maxCharges
+        return NumberOrNil(currentCharges),
+            NumberOrNil(maxCharges),
+            NumberOrZero(cooldownStartTime),
+            NumberOrZero(cooldownDuration),
+            NumberOrNil(chargeModRate) or 1
     end
 end
 
@@ -915,23 +910,29 @@ function CDR:GetWatchedChargeProfile(spellID)
     local maxCharges = 0
     local currentCharges
     local rechargeDuration = 0
+    local rechargeRemaining = 0
     local candidates = self:GetWatchedCandidates(spellID)
+    local now = GetTime()
 
     for _, candidateID in ipairs(candidates) do
-        local current, max = U.GetSpellChargeCountsCompat(candidateID)
-        if not max then
-            local unused, fallbackMax = U.GetSpellChargesCompat(candidateID)
-            max = fallbackMax
-        end
+        local current, max, cooldownStartTime, cooldownDuration, chargeModRate = U.GetSpellChargesCompat(candidateID)
         local baseCooldown = U.GetSpellBaseCooldownCompat(candidateID)
         current = NumberOrNil(current)
         max = NumberOrZero(max)
+        cooldownDuration = NumberOrZero(cooldownDuration)
         baseCooldown = NumberOrZero(baseCooldown)
         if max > maxCharges then
             maxCharges = max
         end
         if max > 1 and current then
             currentCharges = math.max(currentCharges or 0, U.Clamp(current, 0, max))
+        end
+        if cooldownDuration > rechargeDuration then
+            rechargeDuration = cooldownDuration
+        end
+        local remaining = GetRemainingCooldown(cooldownStartTime, cooldownDuration, chargeModRate, now)
+        if remaining > rechargeRemaining then
+            rechargeRemaining = remaining
         end
         if baseCooldown > rechargeDuration then
             rechargeDuration = baseCooldown
@@ -947,19 +948,27 @@ function CDR:GetWatchedChargeProfile(spellID)
     local candidateLookup = U.BuildLookup(candidates)
     for _, slot in ipairs(saved and saved.actionSlots or {}) do
         if self:IsWatchedActionSlot(spellID, slot, candidateLookup) and GetActionCharges then
-            local current, max = GetActionChargeCounts(slot)
+            local current, max, cooldownStartTime, cooldownDuration, chargeModRate = GetActionChargeInfo(slot)
             current = NumberOrNil(current)
             max = NumberOrZero(max)
+            cooldownDuration = NumberOrZero(cooldownDuration)
             if max > maxCharges then
                 maxCharges = max
             end
             if max > 1 and current then
                 currentCharges = math.max(currentCharges or 0, U.Clamp(current, 0, max))
             end
+            if cooldownDuration > rechargeDuration then
+                rechargeDuration = cooldownDuration
+            end
+            local remaining = GetRemainingCooldown(cooldownStartTime, cooldownDuration, chargeModRate, now)
+            if remaining > rechargeRemaining then
+                rechargeRemaining = remaining
+            end
         end
     end
 
-    return maxCharges, rechargeDuration, currentCharges
+    return maxCharges, rechargeDuration, currentCharges, rechargeRemaining
 end
 
 function CDR:RecordWatchedChargeCast(spellID, state)
@@ -969,12 +978,14 @@ function CDR:RecordWatchedChargeCast(spellID, state)
     end
 
     local now = GetTime()
-    local trackedCharges = currentCharges
-    if not trackedCharges then
-        trackedCharges = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now) or maxCharges
-        trackedCharges = U.Clamp(trackedCharges - 1, 0, maxCharges)
-    else
-        trackedCharges = U.Clamp(trackedCharges, 0, maxCharges)
+    local previousTrackedCharges = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
+    local apiCharges = currentCharges and U.Clamp(currentCharges, 0, maxCharges)
+    local trackedCharges = U.Clamp((previousTrackedCharges or maxCharges) - 1, 0, maxCharges)
+
+    if apiCharges and previousTrackedCharges and apiCharges < previousTrackedCharges then
+        trackedCharges = apiCharges
+    elseif apiCharges and not previousTrackedCharges and apiCharges < trackedCharges then
+        trackedCharges = apiCharges
     end
 
     state.trackedCharges = trackedCharges
@@ -995,26 +1006,40 @@ function CDR:GetWatchedCooldownStatus(spellID)
     local state = self.cooldownState and self.cooldownState[spellID]
     local now = GetTime()
 
-    local maxCharges, rechargeDuration, currentCharges = self:GetWatchedChargeProfile(spellID)
+    local maxCharges, rechargeDuration, currentCharges, rechargeRemaining = self:GetWatchedChargeProfile(spellID)
     if state and maxCharges > 1 then
+        local trackedCharges, readyAt = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
         if currentCharges then
             currentCharges = U.Clamp(currentCharges, 0, maxCharges)
-            state.trackedCharges = currentCharges
-            state.trackedMaxCharges = maxCharges
-            state.trackedChargeDuration = rechargeDuration
+            if trackedCharges and readyAt and readyAt > now and currentCharges > trackedCharges then
+                currentCharges = trackedCharges
+            elseif trackedCharges and currentCharges < trackedCharges and rechargeRemaining <= 0 then
+                currentCharges = trackedCharges
+            else
+                state.trackedCharges = currentCharges
+                state.trackedMaxCharges = maxCharges
+                state.trackedChargeDuration = rechargeDuration
+                if currentCharges < maxCharges and rechargeRemaining > 0 then
+                    state.trackedChargeReadyAt = now + rechargeRemaining
+                end
+            end
+
             if currentCharges > 0 then
                 if currentCharges >= maxCharges then
                     state.trackedChargeReadyAt = nil
                 end
                 return false, 0
             end
+            if rechargeRemaining > 0 then
+                return true, rechargeRemaining
+            end
             if rechargeDuration > CONST.GCD_IGNORE_SECONDS and not state.trackedChargeReadyAt then
                 state.trackedChargeReadyAt = now + rechargeDuration
             end
-        end
-
-        local trackedCharges, readyAt = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
-        if trackedCharges then
+            if state.trackedChargeReadyAt and state.trackedChargeReadyAt > now then
+                return true, state.trackedChargeReadyAt - now
+            end
+        elseif trackedCharges then
             if trackedCharges > 0 then
                 return false, 0
             end
@@ -1022,10 +1047,6 @@ function CDR:GetWatchedCooldownStatus(spellID)
                 return true, readyAt - now
             end
         end
-    end
-
-    if state and state.pendingReadyAt and state.pendingReadyAt > now then
-        return true, state.pendingReadyAt - now
     end
 
     for _, candidateID in ipairs(candidates) do
@@ -1052,18 +1073,36 @@ function CDR:GetWatchedCooldownStatus(spellID)
         end
     end
 
+    if onCooldown then
+        return true, longestRemaining
+    end
+
+    if state and state.pendingReadyAt and state.pendingReadyAt > now then
+        return true, state.pendingReadyAt - now
+    end
+
     return onCooldown, longestRemaining
 end
 
 function CDR:GetWatchedChargeDisplay(spellID)
-    local maxCharges, _, currentCharges = self:GetWatchedChargeProfile(spellID)
+    local maxCharges, rechargeDuration, currentCharges, rechargeRemaining = self:GetWatchedChargeProfile(spellID)
     if maxCharges <= 1 then
         return
     end
 
+    local state = self.cooldownState and self.cooldownState[spellID]
+    local trackedCharges
+    local now = GetTime()
+    if state then
+        trackedCharges = AdvanceTrackedCharges(state, maxCharges, rechargeDuration or state.trackedChargeDuration or 0, now)
+    end
+
     if not currentCharges then
-        local state = self.cooldownState and self.cooldownState[spellID]
-        currentCharges = state and AdvanceTrackedCharges(state, maxCharges, state.trackedChargeDuration or 0, GetTime())
+        currentCharges = trackedCharges
+    elseif trackedCharges and state and state.trackedChargeReadyAt and state.trackedChargeReadyAt > now and currentCharges > trackedCharges then
+        currentCharges = trackedCharges
+    elseif currentCharges <= 0 and rechargeRemaining <= 0 and trackedCharges and trackedCharges > 0 then
+        currentCharges = trackedCharges
     end
 
     currentCharges = currentCharges or maxCharges

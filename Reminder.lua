@@ -206,6 +206,12 @@ end
 
 function CDR:GetReadyList()
     local ready = {}
+    local orderIndex = {}
+    self:NormalizeWatchedOrder()
+    for index, spellID in ipairs(self.db.order or {}) do
+        orderIndex[spellID] = index
+    end
+
     for spellID in pairs(self.readySpells or {}) do
         local saved = self.db.spells[spellID]
         if saved then
@@ -234,8 +240,8 @@ function CDR:GetReadyList()
     end
 
     table.sort(ready, function(a, b)
-        local aIndex = CDR:GetWatchedOrderIndex(a.id) or 9999
-        local bIndex = CDR:GetWatchedOrderIndex(b.id) or 9999
+        local aIndex = orderIndex[a.id] or 9999
+        local bIndex = orderIndex[b.id] or 9999
         if aIndex ~= bIndex then
             return aIndex < bIndex
         end
@@ -301,7 +307,7 @@ function CDR:RefreshReminderAlerts()
             row:SetPoint("TOPLEFT", UI.alertRows[index - 1], "BOTTOMLEFT", 0, -CONST.ALERT_ROW_SPACING)
         end
         row.icon:SetTexture(spell.icon)
-        if spell.maxCharges and spell.maxCharges > 1 and spell.charges then
+        if spell.maxCharges and spell.maxCharges > 1 and spell.charges and spell.charges > 0 then
             row.charges:SetText(tostring(spell.charges))
             row.charges:Show()
         else

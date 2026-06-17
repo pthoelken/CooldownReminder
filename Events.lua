@@ -20,6 +20,89 @@ function CDR:IsMonitoringEnabled()
     return not self.db or self.db.monitoringEnabled ~= false
 end
 
+function CDR:RequestReminderRefresh()
+    if not C_Timer then
+        self:RefreshReminderAlerts()
+        return
+    end
+
+    if self.reminderRefreshPending then
+        return
+    end
+
+    self.reminderRefreshPending = true
+    C_Timer.After(CONST.UI_REFRESH_DEBOUNCE_SECONDS, function()
+        CDR.reminderRefreshPending = false
+        CDR:RefreshReminderAlerts()
+    end)
+end
+
+function CDR:RequestConfigRefresh()
+    if not UI.config or not UI.config:IsShown() then
+        return
+    end
+
+    if not C_Timer then
+        self:RefreshConfig()
+        return
+    end
+
+    if self.configRefreshPending then
+        return
+    end
+
+    self.configRefreshPending = true
+    C_Timer.After(CONST.UI_REFRESH_DEBOUNCE_SECONDS, function()
+        CDR.configRefreshPending = false
+        if UI.config and UI.config:IsShown() then
+            CDR:RefreshConfig()
+        end
+    end)
+end
+
+function CDR:RequestCooldownScan(initialScan, delaySeconds)
+    if initialScan then
+        self.pendingInitialCooldownScan = true
+    end
+
+    if not C_Timer then
+        self:ScanCooldowns(initialScan)
+        return
+    end
+
+    if self.cooldownScanPending then
+        return
+    end
+
+    self.cooldownScanPending = true
+    C_Timer.After(delaySeconds or CONST.READY_SCAN_DEBOUNCE_SECONDS, function()
+        CDR.cooldownScanPending = false
+        local runInitialScan = CDR.pendingInitialCooldownScan == true
+        CDR.pendingInitialCooldownScan = nil
+        CDR:ScanCooldowns(runInitialScan)
+    end)
+end
+
+function CDR:ScheduleSpellStateProbe(spellID, castSequence, delaySeconds)
+    if not C_Timer then
+        self:UpdateReadyStateForSpell(spellID, false)
+        return
+    end
+
+    C_Timer.After(delaySeconds or 0, function()
+        if not CDR.db or not CDR.db.spells or not CDR.db.spells[spellID] then
+            return
+        end
+
+        local state = CDR.cooldownState and CDR.cooldownState[spellID]
+        if castSequence and state and state.castSequence ~= castSequence then
+            return
+        end
+
+        CDR:UpdateReadyStateForSpell(spellID, false)
+    end)
+end
+
 function CDR:SetMonitoringEnabled(enabled, silent)
     if not self.db then
         return
@@ -58,7 +141,7 @@ function CDR:UpdateReadyStateForSpell(spellID, playSound)
         state.seenCooldown = true
         state.remaining = remaining
         self.readySpells[spellID] = nil
-        if remaining > CONST.GCD_IGNORE_SECONDS and not state.pendingReadyAt then
+        if remaining > CONST.GCD_IGNORE_SECONDS then
             self:QueueReadyFallback(spellID, remaining)
         end
     else
@@ -70,10 +153,8 @@ function CDR:UpdateReadyStateForSpell(spellID, playSound)
         end
     end
 
-    self:RefreshReminderAlerts()
-    if UI.config and UI.config:IsShown() then
-        self:RefreshConfig()
-    end
+    self:RequestReminderRefresh()
+    self:RequestConfigRefresh()
 end
 
 function CDR:QueueReadyFallback(spellID, delaySeconds)
@@ -88,8 +169,13 @@ function CDR:QueueReadyFallback(spellID, delaySeconds)
 
     local state = self.cooldownState[spellID] or {}
     self.cooldownState[spellID] = state
+    local readyAt = GetTime() + delaySeconds
+    if state.pendingReadyAt and math.abs(state.pendingReadyAt - readyAt) < 0.05 then
+        return
+    end
+
     state.readyToken = (state.readyToken or 0) + 1
-    state.pendingReadyAt = GetTime() + delaySeconds
+    state.pendingReadyAt = readyAt
 
     local token = state.readyToken
     C_Timer.After(delaySeconds + 0.12, function()
@@ -106,10 +192,7 @@ function CDR:ScheduleCooldownProbes(spellID)
     for _, delay in ipairs(delays) do
         C_Timer.After(delay, function()
             if CDR.db and CDR.db.spells and CDR.db.spells[spellID] then
-                CDR:ScanCooldowns(false)
-                if UI.config and UI.config:IsShown() then
-                    CDR:RefreshConfig()
-                end
+                CDR:RequestCooldownScan(false, 0)
             end
         end)
     end
@@ -139,10 +222,8 @@ function CDR:FinishPendingReady(spellID, token)
     if self:MarkReady(spellID) then
         self:PlaySelectedSound(false)
     end
-    self:RefreshReminderAlerts()
-    if UI.config and UI.config:IsShown() then
-        self:RefreshConfig()
-    end
+    self:RequestReminderRefresh()
+    self:RequestConfigRefresh()
 end
 
 function CDR:ScanCooldowns(initialScan)
@@ -165,7 +246,7 @@ function CDR:ScanCooldowns(initialScan)
             state.remaining = remaining
             state.ignoreUntil = nil
             self.readySpells[spellID] = nil
-            if remaining > CONST.GCD_IGNORE_SECONDS and not state.pendingReadyAt then
+            if remaining > CONST.GCD_IGNORE_SECONDS then
                 self:QueueReadyFallback(spellID, remaining)
             end
         elseif initialScan then
@@ -189,10 +270,8 @@ function CDR:ScanCooldowns(initialScan)
         self:PlaySelectedSound(false)
     end
 
-    self:RefreshReminderAlerts()
-    if UI.config and UI.config:IsShown() then
-        self:RefreshConfig()
-    end
+    self:RequestReminderRefresh()
+    self:RequestConfigRefresh()
 end
 
 function CDR:IsWatchedCast(spellName, spellID)
@@ -254,6 +333,8 @@ function CDR:OnSpellCastSucceeded(unitTarget, _, spellID)
     end
 
     state.pendingReadyAt = nil
+    state.castSequence = (state.castSequence or 0) + 1
+    local castSequence = state.castSequence
     local isChargeSpell, trackedCharges, _, trackedRemaining = self:RecordWatchedChargeCast(watchedSpellID, state)
     if isChargeSpell then
         if trackedCharges > 0 then
@@ -279,17 +360,12 @@ function CDR:OnSpellCastSucceeded(unitTarget, _, spellID)
             self:QueueReadyFallback(watchedSpellID, baseCooldown)
         end
     end
-    self:RefreshReminderAlerts()
+    self:RequestReminderRefresh()
 
-    C_Timer.After(0.08, function()
-        CDR:UpdateReadyStateForSpell(watchedSpellID, false)
-    end)
-    C_Timer.After(0.25, function()
-        CDR:UpdateReadyStateForSpell(watchedSpellID, false)
-    end)
-    C_Timer.After(0.6, function()
-        CDR:ScanCooldowns(false)
-    end)
+    self:ScheduleSpellStateProbe(watchedSpellID, castSequence, 0.06)
+    self:ScheduleSpellStateProbe(watchedSpellID, castSequence, 0.22)
+    self:ScheduleSpellStateProbe(watchedSpellID, castSequence, 0.55)
+    self:ScheduleSpellStateProbe(watchedSpellID, castSequence, 1)
 end
 
 function CDR:TestReminder()
@@ -391,16 +467,14 @@ CDR:SetScript("OnEvent", function(self, event, ...)
             self.ticker:Cancel()
         end
         self.ticker = C_Timer.NewTicker(CONST.READY_SCAN_INTERVAL, function()
-            CDR:ScanCooldowns(false)
+            CDR:RequestCooldownScan(false, 0)
         end)
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "ACTIONBAR_SLOT_CHANGED" then
         self:BuildPlayerSpellList()
-        self:ScanCooldowns(false)
-        if UI.config and UI.config:IsShown() then
-            self:RefreshConfig()
-        end
+        self:RequestCooldownScan(false)
+        self:RequestConfigRefresh()
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "ACTIONBAR_UPDATE_COOLDOWN" then
-        self:ScanCooldowns(false)
+        self:RequestCooldownScan(false)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         self:OnSpellCastSucceeded(...)
     end
