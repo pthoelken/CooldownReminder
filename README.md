@@ -65,10 +65,14 @@ World of Warcraft/_retail_/Interface/AddOns/CooldownReminder
 
 ## CurseForge Release Setup
 
-The GitHub workflow in `.github/workflows/release.yml` creates a ZIP package on every push to `main`, publishes a GitHub release, and can upload the ZIP to CurseForge when these repository secrets are configured:
+The GitHub workflow in `.github/workflows/release.yml` creates a ZIP package on every push to `main`, uploads it to CurseForge, and only creates the GitHub release after the CurseForge upload succeeds.
+
+Configure these repository secrets:
 
 - `CURSEFORGE_API_TOKEN`
 - `CURSEFORGE_PROJECT_ID`
+
+The package is built from an explicit allowlist, so development files and repository assets such as `.github`, `images`, `README.md`, and `DESCRIPTION.md` are not included in the addon ZIP.
 
 The workflow resolves CurseForge game version IDs automatically. It reads the WoW interface version from `CooldownReminder.toc`, for example:
 
@@ -76,9 +80,9 @@ The workflow resolves CurseForge game version IDs automatically. It reads the Wo
 ## Interface: 120007
 ```
 
-Then it converts that value to the matching Retail version, for example `120007` -> `12.0.7`, calls the CurseForge API, filters for Retail (`wow_retail`, type ID `517`), and sends the resolved numeric IDs to the upload endpoint.
+Then it converts that value to the matching Retail version, for example `120007` -> `12.0.7`, fetches the legacy WoW CurseForge version endpoint (`https://wow.curseforge.com/api/game/versions?token=...`), filters for Retail (`wow_retail`, type ID `517`), and sends the resolved numeric IDs to the upload endpoint.
 
-If CurseForge has not listed the newest WoW version yet, the release job fails with a clear message after publishing the GitHub release.
+If CurseForge has not listed the newest WoW version yet, the release job fails before creating the GitHub release.
 
 ## Development
 
