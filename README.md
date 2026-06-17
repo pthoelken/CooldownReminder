@@ -72,6 +72,8 @@ Configure these repository secrets:
 - `CURSEFORGE_API_TOKEN`
 - `CURSEFORGE_PROJECT_ID`
 
+The workflow uploads with `itsmeow/curseforge-upload@v3.1.2`. `CURSEFORGE_API_TOKEN` should be the raw token from the CurseForge API tokens page, and `CURSEFORGE_PROJECT_ID` must be the numerical project ID from the CurseForge project sidebar. If the project is still in its initial CurseForge review, API uploads can be rejected until the first file/project approval is complete.
+
 The package is built from an explicit allowlist, so development files and repository assets such as `.github`, `images`, `README.md`, and `DESCRIPTION.md` are not included in the addon ZIP.
 
 The workflow resolves CurseForge game version IDs automatically. It reads the WoW interface version from `CooldownReminder.toc`, for example:

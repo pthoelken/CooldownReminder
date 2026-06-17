@@ -188,46 +188,29 @@ jobs:
               output.write(f"ids={ids}\n")
           PY
 
-      - name: Upload to CurseForge
+      - name: Read changelog
+        id: changelog
         shell: bash
-        env:
-          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
-          CURSEFORGE_PROJECT_ID: ${{ secrets.CURSEFORGE_PROJECT_ID }}
-          CURSEFORGE_GAME_VERSION_IDS: ${{ steps.curse_versions.outputs.ids }}
-          ADDON_VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          python3 <<'PY'
-          import json
-          import os
-          from pathlib import Path
+          delimiter="CURSEFORGE_CHANGELOG_$(date +%s%N)"
+          {
+            echo "body<<${delimiter}"
+            cat DESCRIPTION.md
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
-          game_versions = [
-              int(value.strip())
-              for value in os.environ["CURSEFORGE_GAME_VERSION_IDS"].split(",")
-              if value.strip()
-          ]
-          if not game_versions:
-              raise SystemExit("No CurseForge game version IDs were resolved.")
-
-          metadata = {
-              "changelog": Path("DESCRIPTION.md").read_text(encoding="utf-8"),
-              "changelogType": "markdown",
-              "displayName": f"CooldownReminder {os.environ['ADDON_VERSION']}",
-              "gameVersions": game_versions,
-              "releaseType": "release",
-          }
-          Path("dist/metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-          PY
-          token="$(printf '%s' "${CURSEFORGE_API_TOKEN}" | tr -d '\r\n')"
-          if [[ "${token}" == *"token="* ]]; then
-            token="${token#*token=}"
-            token="${token%%&*}"
-          fi
-          curl --fail-with-body -sS \
-            -H "x-api-token: ${token}" \
-            -F "metadata=<dist/metadata.json" \
-            -F "file=@dist/CooldownReminder-${ADDON_VERSION}.zip" \
-            "https://wow.curseforge.com/api/projects/${CURSEFORGE_PROJECT_ID}/upload-file"
+      - name: Upload to CurseForge
+        uses: itsmeow/curseforge-upload@v3.1.2
+        with:
+          token: ${{ secrets.CURSEFORGE_API_TOKEN }}
+          project_id: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+          game_endpoint: wow
+          file_path: dist/CooldownReminder-${{ steps.meta.outputs.version }}.zip
+          game_versions: ${{ steps.curse_versions.outputs.ids }}
+          release_type: release
+          display_name: CooldownReminder ${{ steps.meta.outputs.version }}
+          changelog: ${{ steps.changelog.outputs.body }}
+          changelog_type: markdown
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
