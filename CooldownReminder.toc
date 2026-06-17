@@ -1,0 +1,24 @@
+## Interface: 120007
+## Title: CooldownReminder
+## Notes: Shows a movable reminder when selected character spells are ready again.
+## Notes-deDE: Zeigt eine verschiebbare Erinnerung, wenn ausgewaehlte Charakterzauber wieder bereit sind.
+## Author: Codex
+## Version: 1.7.0
+## DefaultState: Enabled
+## SavedVariablesPerCharacter: CooldownReminderDB
+## Category: Combat
+## IconTexture: Interface\Icons\spell_holy_borrowedtime
+
+Localization\enUS.lua
+Localization\deDE.lua
+Localization\frFR.lua
+Localization\esES.lua
+Localization\esMX.lua
+Localization\ruRU.lua
+Localization\zhCN.lua
+Localization\zhTW.lua
+Core.lua
+Spells.lua
+Reminder.lua
+Options.lua
+Events.lua
