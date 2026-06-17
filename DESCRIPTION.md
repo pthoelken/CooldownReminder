@@ -13,7 +13,7 @@ CooldownReminder is a lightweight World of Warcraft addon that shows a compact r
 - Optional spell names, sounds, load message, and top-most reminder behavior.
 - Global monitoring toggle in the settings window or with `/cdr ac` and `/cdr ia`.
 - Character-specific saved settings.
-- Localized UI for English, German, French, Spanish, Russian, Simplified Chinese, and Traditional Chinese.
+- Localized UI for English, Portuguese, Spanish, French, German, Italian, Russian, Simplified Chinese, Korean, and Traditional Chinese.
 
 ## Commands
 

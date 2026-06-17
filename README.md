@@ -11,7 +11,7 @@
 <p align="center">
   <img alt="WoW Retail" src="https://img.shields.io/badge/WoW%20Retail-12.0.7-d7b45f">
   <img alt="Addon version" src="https://img.shields.io/github/v/release/pthoelken/CooldownReminder?label=version&color=33cc66">
-  <img alt="Localization" src="https://img.shields.io/badge/locales-8-blue">
+  <img alt="Localization" src="https://img.shields.io/badge/locales-11-blue">
 </p>
 
 ![CooldownReminder UI preview](images/cooldownreminder.png)
@@ -35,7 +35,7 @@ The addon is built for character-specific cooldown tracking: it reads your curre
 - Move and scale the reminder stack directly on screen.
 - Optional spell titles, sounds, load message, and top-most behavior.
 - Monitoring can be enabled or disabled from settings or slash commands.
-- Localized UI for `enUS`, `deDE`, `frFR`, `esES`, `esMX`, `ruRU`, `zhCN`, and `zhTW`.
+- Localized UI for `enUS`, `ptBR`, `esES`, `esMX`, `frFR`, `deDE`, `itIT`, `ruRU`, `zhCN`, `koKR`, and `zhTW`.
 
 ## Slash Commands
 

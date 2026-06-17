@@ -68,12 +68,15 @@ CDR.SOUND_OPTIONS = {
 CDR.LANGUAGE_OPTIONS = {
     { id = "auto" },
     { id = "enUS" },
-    { id = "deDE" },
-    { id = "frFR" },
+    { id = "ptBR" },
     { id = "esES" },
     { id = "esMX" },
+    { id = "frFR" },
+    { id = "deDE" },
+    { id = "itIT" },
     { id = "ruRU" },
     { id = "zhCN" },
+    { id = "koKR" },
     { id = "zhTW" },
 }
 
@@ -304,12 +307,15 @@ function U.GetLanguageLabel(languageID)
     end
     local keys = {
         enUS = "LANG_EN",
+        ptBR = "LANG_PT_BR",
         deDE = "LANG_DE",
         frFR = "LANG_FR",
         esES = "LANG_ES",
         esMX = "LANG_ES_MX",
+        itIT = "LANG_IT",
         ruRU = "LANG_RU",
         zhCN = "LANG_ZH_CN",
+        koKR = "LANG_KO",
         zhTW = "LANG_ZH_TW",
     }
     return CDR:L(keys[languageID] or "LANG_EN")
