@@ -49,6 +49,8 @@ jobs:
           mkdir -p dist/CooldownReminder/Localization
           cp CooldownReminder.toc Core.lua Spells.lua Reminder.lua Options.lua Events.lua dist/CooldownReminder/
           cp Localization/*.lua dist/CooldownReminder/Localization/
+          mkdir -p dist/CooldownReminder/Libs
+          cp -R Libs/Ace3 dist/CooldownReminder/Libs/
           cd dist
           zip -r -X "CooldownReminder-${{ steps.meta.outputs.version }}.zip" CooldownReminder
 
@@ -195,7 +197,7 @@ jobs:
           delimiter="CURSEFORGE_CHANGELOG_$(date +%s%N)"
           {
             echo "body<<${delimiter}"
-            cat DESCRIPTION.md
+            cat CHANGELOG.md
             echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
 
@@ -217,6 +219,6 @@ jobs:
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: CooldownReminder ${{ steps.meta.outputs.version }}
-          body_path: DESCRIPTION.md
+          body_path: CHANGELOG.md
           files: dist/CooldownReminder-${{ steps.meta.outputs.version }}.zip
           make_latest: true

@@ -1,10 +1,29 @@
 local ADDON_NAME = ...
 
+local function GetAddonMetadata(field)
+    if type(C_AddOns) == "table" and type(C_AddOns.GetAddOnMetadata) == "function" then
+        return C_AddOns.GetAddOnMetadata(ADDON_NAME, field)
+    end
+
+    if type(GetAddOnMetadata) == "function" then
+        return GetAddOnMetadata(ADDON_NAME, field)
+    end
+end
+
+local function GetAddonVersion()
+    local version = GetAddonMetadata("Version")
+    if type(version) == "string" and version ~= "" then
+        return version
+    end
+
+    return "dev"
+end
+
 local CDR = CreateFrame("Frame", "CooldownReminderEventFrame")
 CooldownReminder = CDR
 
 CDR.ADDON_NAME = ADDON_NAME
-CDR.VERSION = "1.7.0"
+CDR.VERSION = GetAddonVersion()
 CDR.UI = {}
 CDR.Utils = {}
 

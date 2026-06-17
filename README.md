@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="WoW Retail" src="https://img.shields.io/badge/WoW%20Retail-12.0.7-d7b45f">
-  <img alt="Addon version" src="https://img.shields.io/badge/version-1.7.0-33cc66">
+  <img alt="Addon version" src="https://img.shields.io/github/v/release/pthoelken/CooldownReminder?label=version&color=33cc66">
   <img alt="Localization" src="https://img.shields.io/badge/locales-8-blue">
 </p>
 
@@ -74,7 +74,7 @@ Configure these repository secrets:
 
 The workflow uploads with `itsmeow/curseforge-upload@v3.1.2`. `CURSEFORGE_API_TOKEN` should be the raw token from the CurseForge API tokens page, and `CURSEFORGE_PROJECT_ID` must be the numerical project ID from the CurseForge project sidebar. If the project is still in its initial CurseForge review, API uploads can be rejected until the first file/project approval is complete.
 
-The package is built from an explicit allowlist, so development files and repository assets such as `.github`, `images`, `README.md`, and `DESCRIPTION.md` are not included in the addon ZIP.
+The package is built from an explicit allowlist, so development files and repository assets such as `.github`, `images`, `README.md`, `CHANGELOG.md`, and `DESCRIPTION.md` are not included in the addon ZIP.
 
 The workflow resolves CurseForge game version IDs automatically. It reads the WoW interface version from `CooldownReminder.toc`, for example:
 
