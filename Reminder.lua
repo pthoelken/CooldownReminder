@@ -215,18 +215,29 @@ function CDR:GetReadyList()
     for spellID in pairs(self.readySpells or {}) do
         local saved = self.db.spells[spellID]
         if saved then
-            local onCooldown = self:GetWatchedCooldownStatus(spellID)
+            local onCooldown, _, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
             if onCooldown then
                 self.readySpells[spellID] = nil
             else
-                local charges, maxCharges = self:GetWatchedChargeDisplay(spellID)
-                table.insert(ready, {
-                    id = spellID,
-                    name = saved.name or ("Spell " .. spellID),
-                    icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
-                    charges = charges,
-                    maxCharges = maxCharges,
-                })
+                local now = GetTime()
+                local state = self.cooldownState and self.cooldownState[spellID]
+                if state and self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+                    self.readySpells[spellID] = nil
+                else
+                    local blockedUntil = state and math.max(state.castSettleUntil or 0, state.cooldownBlockUntil or 0, state.pendingReadyAt or 0) or 0
+                    if blockedUntil > now then
+                        self.readySpells[spellID] = nil
+                    else
+                        local charges, maxCharges = self:GetWatchedChargeDisplay(spellID)
+                        table.insert(ready, {
+                            id = spellID,
+                            name = saved.name or ("Spell " .. spellID),
+                            icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
+                            charges = charges,
+                            maxCharges = maxCharges,
+                        })
+                    end
+                end
             end
         elseif self.testReadySpell and self.testReadySpell.id == spellID then
             table.insert(ready, {

@@ -103,6 +103,120 @@ function CDR:ScheduleSpellStateProbe(spellID, castSequence, delaySeconds)
     end)
 end
 
+function CDR:ClearReadyConfirmation(state)
+    if not state then
+        return
+    end
+
+    state.readyConfirmSince = nil
+    state.readyConfirmToken = (state.readyConfirmToken or 0) + 1
+end
+
+function CDR:StartReadyConfirmation(spellID, state, now, confirmSeconds)
+    confirmSeconds = tonumber(confirmSeconds or 0) or 0
+    if confirmSeconds <= 0 or not C_Timer then
+        return false
+    end
+
+    if not state.readyConfirmSince then
+        state.readyConfirmSince = now
+        state.readyConfirmToken = (state.readyConfirmToken or 0) + 1
+        local token = state.readyConfirmToken
+        C_Timer.After(confirmSeconds, function()
+            CDR:FinishReadyConfirmation(spellID, token)
+        end)
+    end
+
+    return (now - state.readyConfirmSince) < confirmSeconds
+end
+
+function CDR:MarkSpellReady(spellID, state)
+    state.seenCooldown = false
+    state.remaining = 0
+    state.pendingReadyAt = nil
+    state.castSettleUntil = nil
+    state.cooldownBlockUntil = nil
+    self:ClearReadyConfirmation(state)
+
+    return self:MarkReady(spellID)
+end
+
+function CDR:ShouldDeferReady(spellID, state, now, actionReadyConfirmed)
+    if actionReadyConfirmed and (state.seenCooldown or state.pendingReadyAt or state.cooldownBlockUntil) then
+        if self:StartReadyConfirmation(spellID, state, now, CONST.ACTION_READY_CONFIRM_SECONDS) then
+            return true
+        end
+        state.castSettleUntil = nil
+        state.pendingReadyAt = nil
+        state.cooldownBlockUntil = nil
+        return false
+    end
+
+    if state.castSettleUntil and state.castSettleUntil > now then
+        return true
+    end
+
+    if state.cooldownBlockUntil and state.cooldownBlockUntil > now then
+        return true
+    end
+
+    if state.pendingReadyAt and state.pendingReadyAt > now then
+        return true
+    end
+
+    if state.seenCooldown or state.pendingReadyAt then
+        local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
+        local confirmSeconds = inCombat and CONST.COMBAT_READY_CONFIRM_SECONDS or CONST.READY_CONFIRM_SECONDS
+        return self:StartReadyConfirmation(spellID, state, now, confirmSeconds)
+    end
+
+    return false
+end
+
+function CDR:FinishReadyConfirmation(spellID, token)
+    if not self.db or not self.db.spells or not self.db.spells[spellID] then
+        return
+    end
+
+    local state = self.cooldownState[spellID]
+    if not state or state.readyConfirmToken ~= token or self.readySpells[spellID] then
+        return
+    end
+
+    local now = GetTime()
+    if state.castSettleUntil and state.castSettleUntil > now then
+        return
+    end
+
+    local onCooldown, remaining, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
+    if onCooldown then
+        self:ClearReadyConfirmation(state)
+        state.seenCooldown = true
+        state.remaining = remaining
+        self.readySpells[spellID] = nil
+        if remaining > CONST.GCD_IGNORE_SECONDS then
+            self:QueueReadyFallback(spellID, remaining)
+        end
+        self:RequestReminderRefresh()
+        self:RequestConfigRefresh()
+        return
+    end
+
+    if self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+        state.seenCooldown = true
+        state.remaining = math.max(0, (state.pendingReadyAt or now) - now)
+        self:RequestReminderRefresh()
+        self:RequestConfigRefresh()
+        return
+    end
+
+    if self:MarkSpellReady(spellID, state) then
+        self:PlaySelectedSound(false)
+    end
+    self:RequestReminderRefresh()
+    self:RequestConfigRefresh()
+end
+
 function CDR:SetMonitoringEnabled(enabled, silent)
     if not self.db then
         return
@@ -133,11 +247,12 @@ function CDR:UpdateReadyStateForSpell(spellID, playSound)
         return
     end
 
-    local onCooldown, remaining = self:GetWatchedCooldownStatus(spellID)
+    local onCooldown, remaining, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
     local state = self.cooldownState[spellID] or {}
     self.cooldownState[spellID] = state
 
     if onCooldown then
+        self:ClearReadyConfirmation(state)
         state.seenCooldown = true
         state.remaining = remaining
         self.readySpells[spellID] = nil
@@ -145,10 +260,11 @@ function CDR:UpdateReadyStateForSpell(spellID, playSound)
             self:QueueReadyFallback(spellID, remaining)
         end
     else
-        state.seenCooldown = false
-        state.remaining = 0
-        state.pendingReadyAt = nil
-        if self:MarkReady(spellID) and playSound then
+        local now = GetTime()
+        if self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+            state.seenCooldown = true
+            state.remaining = math.max(0, (state.pendingReadyAt or now) - now)
+        elseif self:MarkSpellReady(spellID, state) and playSound then
             self:PlaySelectedSound(false)
         end
     end
@@ -170,6 +286,8 @@ function CDR:QueueReadyFallback(spellID, delaySeconds)
     local state = self.cooldownState[spellID] or {}
     self.cooldownState[spellID] = state
     local readyAt = GetTime() + delaySeconds
+    state.cooldownBlockUntil = readyAt
+
     if state.pendingReadyAt and math.abs(state.pendingReadyAt - readyAt) < 0.05 then
         return
     end
@@ -208,18 +326,25 @@ function CDR:FinishPendingReady(spellID, token)
         return
     end
 
-    local onCooldown, remaining = self:GetWatchedCooldownStatus(spellID)
+    local onCooldown, remaining, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
     if onCooldown then
+        self:ClearReadyConfirmation(state)
         state.seenCooldown = true
         state.remaining = remaining
         self:QueueReadyFallback(spellID, remaining)
         return
     end
 
-    state.seenCooldown = false
-    state.remaining = 0
-    state.pendingReadyAt = nil
-    if self:MarkReady(spellID) then
+    local now = GetTime()
+    if self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+        state.seenCooldown = true
+        state.remaining = math.max(0, (state.pendingReadyAt or now) - now)
+        self:RequestReminderRefresh()
+        self:RequestConfigRefresh()
+        return
+    end
+
+    if self:MarkSpellReady(spellID, state) then
         self:PlaySelectedSound(false)
     end
     self:RequestReminderRefresh()
@@ -234,7 +359,7 @@ function CDR:ScanCooldowns(initialScan)
     local now = GetTime()
     local playReadySound = false
     for spellID in pairs(self.db.spells) do
-        local onCooldown, remaining = self:GetWatchedCooldownStatus(spellID)
+        local onCooldown, remaining, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
         local state = self.cooldownState[spellID]
         if not state then
             state = {}
@@ -242,6 +367,7 @@ function CDR:ScanCooldowns(initialScan)
         end
 
         if onCooldown then
+            self:ClearReadyConfirmation(state)
             state.seenCooldown = true
             state.remaining = remaining
             state.ignoreUntil = nil
@@ -250,15 +376,12 @@ function CDR:ScanCooldowns(initialScan)
                 self:QueueReadyFallback(spellID, remaining)
             end
         elseif initialScan then
-            state.seenCooldown = false
-            state.remaining = 0
-            state.pendingReadyAt = nil
-            self:MarkReady(spellID)
-        elseif state.seenCooldown or (state.pendingReadyAt and now >= state.pendingReadyAt) then
-            state.seenCooldown = false
-            state.remaining = 0
-            state.pendingReadyAt = nil
-            if self:MarkReady(spellID) then
+            self:MarkSpellReady(spellID, state)
+        elseif state.seenCooldown or state.pendingReadyAt then
+            if self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+                state.seenCooldown = true
+                state.remaining = math.max(0, (state.pendingReadyAt or now) - now)
+            elseif self:MarkSpellReady(spellID, state) then
                 playReadySound = true
             end
         elseif state.ignoreUntil and now > state.ignoreUntil then
@@ -333,14 +456,16 @@ function CDR:OnSpellCastSucceeded(unitTarget, _, spellID)
     end
 
     state.pendingReadyAt = nil
+    self:ClearReadyConfirmation(state)
     state.castSequence = (state.castSequence or 0) + 1
+    state.castSettleUntil = GetTime() + CONST.POST_CAST_SETTLE_SECONDS
     local castSequence = state.castSequence
     local isChargeSpell, trackedCharges, _, trackedRemaining = self:RecordWatchedChargeCast(watchedSpellID, state)
     if isChargeSpell then
         if trackedCharges > 0 then
-            state.seenCooldown = false
+            state.seenCooldown = true
             state.remaining = 0
-            self:MarkReady(watchedSpellID)
+            self.readySpells[watchedSpellID] = nil
         else
             state.seenCooldown = true
             state.remaining = trackedRemaining
@@ -422,6 +547,8 @@ function CDR:RegisterSlashCommands()
             CDR:SetMonitoringEnabled(true)
         elseif message == "ia" or message == "off" or message == "disable" then
             CDR:SetMonitoringEnabled(false)
+        elseif message == "toggle" then
+            CDR:SetMonitoringEnabled(not CDR:IsMonitoringEnabled())
         else
             CDR:ToggleConfig()
         end
@@ -460,6 +587,7 @@ CDR:SetScript("OnEvent", function(self, event, ...)
             self:Initialize()
         end
     elseif event == "PLAYER_LOGIN" then
+        self:InvalidateActionCooldownSnapshot(true)
         self:BuildPlayerSpellList()
         self:ScanCooldowns(true)
         self:PrintLoadMessage()
@@ -470,12 +598,15 @@ CDR:SetScript("OnEvent", function(self, event, ...)
             CDR:RequestCooldownScan(false, 0)
         end)
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "ACTIONBAR_SLOT_CHANGED" then
+        self:InvalidateActionCooldownSnapshot(true)
         self:BuildPlayerSpellList()
         self:RequestCooldownScan(false)
         self:RequestConfigRefresh()
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "ACTIONBAR_UPDATE_COOLDOWN" then
+        self:InvalidateActionCooldownSnapshot(false)
         self:RequestCooldownScan(false)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        self:InvalidateActionCooldownSnapshot(false)
         self:OnSpellCastSucceeded(...)
     end
 end)

@@ -3,7 +3,7 @@
 ## Notes: Shows a movable reminder when selected character spells are ready again.
 ## Notes-deDE: Zeigt eine verschiebbare Erinnerung, wenn ausgewaehlte Charakterzauber wieder bereit sind.
 ## Author: Codex
-## Version: 1.7.4
+## Version: 1.7.5
 ## DefaultState: Enabled
 ## SavedVariablesPerCharacter: CooldownReminderDB
 ## Category: Combat

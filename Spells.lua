@@ -10,6 +10,10 @@ local function CalculateRemainingCooldown(startTime, duration, modRate, now)
     if startTime <= 0 or startTime > now then
         return 0
     end
+    modRate = tonumber(modRate) or 1
+    if modRate <= 0 then
+        modRate = 1
+    end
     return math.max(0, (startTime + duration - now) / (modRate or 1))
 end
 
@@ -188,6 +192,97 @@ local function GetActionChargeInfo(slot)
     end
 end
 
+local function GetActionTextureCompat(slot)
+    if GetActionTexture then
+        local ok, texture = pcall(GetActionTexture, slot)
+        if ok then
+            return texture
+        end
+    end
+
+    if C_ActionBar and C_ActionBar.GetActionTexture then
+        local ok, texture = pcall(C_ActionBar.GetActionTexture, slot)
+        if ok then
+            return texture
+        end
+    end
+end
+
+local GetTextureLookupKeys
+
+local function TexturesMatch(left, right)
+    if left == nil or right == nil then
+        return false
+    end
+
+    if left == right or tostring(left) == tostring(right) then
+        return true
+    end
+
+    local leftKeys = {}
+    for _, key in ipairs(GetTextureLookupKeys(left)) do
+        leftKeys[key] = true
+    end
+    for _, key in ipairs(GetTextureLookupKeys(right)) do
+        if leftKeys[key] then
+            return true
+        end
+    end
+
+    return false
+end
+
+GetTextureLookupKeys = function(texture)
+    local keys = {}
+    local seen = {}
+    local function addKey(key)
+        if key == nil or key == "" or seen[key] then
+            return
+        end
+        seen[key] = true
+        table.insert(keys, key)
+    end
+    local function addStringKeys(value)
+        value = tostring(value or "")
+        if value == "" then
+            return
+        end
+
+        local normalized = value:gsub("/", "\\")
+        local lowered = string.lower(normalized)
+        addKey(normalized)
+        addKey(lowered)
+
+        local basename = lowered:match("([^\\]+)$")
+        if basename then
+            addKey(basename)
+            addKey((basename:gsub("%.[%w_]+$", "")))
+        end
+    end
+
+    addKey(texture)
+    addStringKeys(texture)
+
+    if type(texture) == "number" then
+        local path
+        if C_Texture and C_Texture.GetFilenameFromFileDataID then
+            local ok, result = pcall(C_Texture.GetFilenameFromFileDataID, texture)
+            if ok then
+                path = result
+            end
+        end
+        if not path and GetFileInfo then
+            local ok, result = pcall(GetFileInfo, texture)
+            if ok then
+                path = result
+            end
+        end
+        addStringKeys(path)
+    end
+
+    return keys
+end
+
 function U.GetSpellBaseCooldownCompat(spellID)
     if C_Spell and C_Spell.GetSpellBaseCooldown then
         local cooldown = C_Spell.GetSpellBaseCooldown(spellID)
@@ -262,11 +357,15 @@ function U.GetActionCooldownStatus(slot)
     local now = GetTime()
 
     if GetActionCharges then
-        local maxCharges = select(2, GetActionCharges(slot))
+        local currentCharges, maxCharges, cooldownStartTime, cooldownDuration, chargeModRate = GetActionChargeInfo(slot)
         if IsGreaterThan(maxCharges, 1) then
-            local actionSpellID = U.GetActionSpellID(slot)
-            if actionSpellID then
-                return U.GetCooldownStatus(actionSpellID)
+            if currentCharges and currentCharges > 0 then
+                return false, 0, true
+            end
+
+            local remaining = GetRemainingCooldown(cooldownStartTime, cooldownDuration, chargeModRate, now)
+            if remaining > 0 then
+                return true, remaining, false
             end
         end
     end
@@ -276,7 +375,17 @@ function U.GetActionCooldownStatus(slot)
         if IsCooldownEnabled(isEnabled) then
             local remaining = GetRemainingCooldown(startTime, duration, modRate, now)
             if remaining > 0 then
-                return true, remaining
+                return true, remaining, false
+            end
+        end
+    end
+
+    if GetActionCharges then
+        local _, maxCharges = GetActionChargeInfo(slot)
+        if IsGreaterThan(maxCharges, 1) then
+            local actionSpellID = U.GetActionSpellID(slot)
+            if actionSpellID then
+                return U.GetCooldownStatus(actionSpellID)
             end
         end
     end
@@ -609,10 +718,16 @@ function CDR:ReconcileWatchedSpellData()
             end
             U.AddUnique(aliases, lookup, spellID)
 
-            local actionSlots = U.CopyAliasList(saved.actionSlots)
-            local actionSlotLookup = U.BuildLookup(actionSlots)
+            local actionSlots = {}
+            local actionSlotLookup = {}
             for _, slot in ipairs(playerSpell.actionSlots or {}) do
                 U.AddUnique(actionSlots, actionSlotLookup, slot)
+            end
+            for _, slot in ipairs(saved.actionSlots or {}) do
+                local texture = GetActionTextureCompat(slot)
+                if self:IsWatchedActionSlot(spellID, slot, lookup) or TexturesMatch(texture, playerSpell.icon or saved.icon) then
+                    U.AddUnique(actionSlots, actionSlotLookup, slot)
+                end
             end
 
             local baseCooldown = math.max(tonumber(saved.baseCooldown or 0) or 0, tonumber(playerSpell.forcedCooldown or 0) or 0)
@@ -906,6 +1021,371 @@ function CDR:IsWatchedActionSlot(spellID, slot, candidateLookup)
     return U.NormalizeName(actionName) == (saved.nameKey or U.NormalizeName(saved.name))
 end
 
+local function AddActionSnapshotRecord(index, key, record)
+    if key == nil or key == "" then
+        return
+    end
+
+    local records = index[key]
+    if not records then
+        records = {}
+        index[key] = records
+    end
+    table.insert(records, record)
+end
+
+local function AddActionSnapshotTextureRecords(index, texture, record)
+    for _, key in ipairs(GetTextureLookupKeys(texture)) do
+        AddActionSnapshotRecord(index, key, record)
+    end
+end
+
+function CDR:InvalidateActionCooldownSnapshot(refreshFrames)
+    self.actionCooldownSnapshot = nil
+    if refreshFrames then
+        self.actionButtonFrames = nil
+    end
+end
+
+local function GetFrameName(frame)
+    if not frame or not frame.GetName then
+        return
+    end
+
+    local ok, name = pcall(frame.GetName, frame)
+    if ok and type(name) == "string" then
+        return name
+    end
+end
+
+local function GetFrameAttribute(frame, attribute)
+    if not frame or not frame.GetAttribute then
+        return
+    end
+
+    local ok, value = pcall(frame.GetAttribute, frame, attribute)
+    if ok then
+        return value
+    end
+end
+
+local function GetNamedFrameRegion(frame, suffix)
+    local name = GetFrameName(frame)
+    if not name then
+        return
+    end
+
+    return _G and _G[name .. suffix]
+end
+
+local function GetFrameActionSlot(frame)
+    if not frame then
+        return
+    end
+
+    local action = frame.action
+    if not action and frame.GetAttribute then
+        action = GetFrameAttribute(frame, "action")
+    end
+
+    return U.ToSpellID(action)
+end
+
+local function GetFrameSpellID(frame)
+    if not frame then
+        return
+    end
+
+    local spellID = U.ToSpellID(frame.spellID or frame.spellId or frame.actionID)
+    if not spellID then
+        spellID = U.ToSpellID(GetFrameAttribute(frame, "spell"))
+    end
+    return spellID
+end
+
+local function IsActionButtonType(frame)
+    local buttonType = frame and (frame.buttonType or frame.type)
+    if not buttonType then
+        buttonType = GetFrameAttribute(frame, "type")
+    end
+
+    buttonType = type(buttonType) == "string" and string.lower(buttonType) or buttonType
+    return buttonType == "action" or buttonType == "spell" or buttonType == "macro" or buttonType == "item"
+end
+
+local function GetFrameIconTexture(frame)
+    if not frame then
+        return
+    end
+
+    local icon = frame.icon or frame.Icon or frame.IconTexture or GetNamedFrameRegion(frame, "Icon")
+    if not icon and frame.GetNormalTexture then
+        local ok, normalTexture = pcall(frame.GetNormalTexture, frame)
+        if ok then
+            icon = normalTexture
+        end
+    end
+    if icon and icon.GetTexture then
+        local ok, texture = pcall(icon.GetTexture, icon)
+        if ok then
+            return texture
+        end
+    end
+end
+
+local function GetFrameCooldownFrame(frame)
+    if not frame then
+        return
+    end
+
+    return frame.cooldown or frame.Cooldown or GetNamedFrameRegion(frame, "Cooldown")
+end
+
+local function GetCooldownFrameRemaining(cooldownFrame)
+    if not cooldownFrame then
+        return false, 0
+    end
+
+    if cooldownFrame.IsShown then
+        local ok, shown = pcall(cooldownFrame.IsShown, cooldownFrame)
+        if ok and not shown then
+            return false, 0
+        end
+    end
+
+    local startTime
+    local duration
+    local modRate = 1
+    if cooldownFrame.GetCooldownTimes then
+        local ok, startValue, durationValue, modRateValue = pcall(cooldownFrame.GetCooldownTimes, cooldownFrame)
+        if ok then
+            startTime = NumberOrNil(startValue)
+            duration = NumberOrNil(durationValue)
+            modRate = NumberOrNil(modRateValue) or modRate
+            if modRate <= 0 then
+                modRate = 1
+            end
+        end
+    end
+
+    if not duration or duration <= 0 then
+        startTime = NumberOrNil(cooldownFrame.startTime or cooldownFrame.start)
+        duration = NumberOrNil(cooldownFrame.duration)
+        modRate = NumberOrNil(cooldownFrame.modRate or cooldownFrame.rate) or modRate
+        if modRate <= 0 then
+            modRate = 1
+        end
+    end
+
+    if not startTime or not duration or duration <= 0 then
+        return false, 0
+    end
+
+    local now = GetTime()
+    if startTime > (now + 3600) then
+        startTime = startTime / 1000
+        duration = duration / 1000
+    end
+
+    local remaining = GetRemainingCooldown(startTime, duration, modRate, now)
+    return remaining > 0, remaining
+end
+
+local function IsLikelyActionButtonFrame(frame)
+    if not frame then
+        return false
+    end
+
+    if GetFrameActionSlot(frame) then
+        return true
+    end
+
+    if GetFrameSpellID(frame) or IsActionButtonType(frame) then
+        return true
+    end
+
+    local name = GetFrameName(frame)
+    if not name then
+        return false
+    end
+
+    if string.find(name, "ActionButton", 1, true) or string.find(name, "MultiBar", 1, true) then
+        return true
+    end
+    if string.find(name, "BT4Button", 1, true) or string.find(name, "DominosActionButton", 1, true) then
+        return true
+    end
+    if string.find(name, "ElvUI_Bar", 1, true) then
+        return true
+    end
+
+    local cooldownFrame = GetFrameCooldownFrame(frame)
+    if string.find(name, "Button", 1, true) and GetFrameIconTexture(frame) and cooldownFrame then
+        local onCooldown = GetCooldownFrameRemaining(cooldownFrame)
+        if onCooldown then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function IsFrameVisible(frame)
+    if frame and frame.IsVisible then
+        local ok, visible = pcall(frame.IsVisible, frame)
+        if ok then
+            return visible
+        end
+    end
+
+    return true
+end
+
+function CDR:RefreshActionButtonFrames()
+    if self.actionButtonFrames then
+        return
+    end
+
+    local frames = {}
+    local seen = {}
+    local function addFrame(frame)
+        if not frame or seen[frame] or not IsLikelyActionButtonFrame(frame) then
+            return
+        end
+        if not GetFrameIconTexture(frame) and not GetFrameCooldownFrame(frame) then
+            return
+        end
+
+        seen[frame] = true
+        table.insert(frames, frame)
+    end
+
+    local prefixes = {
+        "ActionButton",
+        "MultiBarBottomLeftButton",
+        "MultiBarBottomRightButton",
+        "MultiBarRightButton",
+        "MultiBarLeftButton",
+        "MultiBar5Button",
+        "MultiBar6Button",
+        "MultiBar7Button",
+        "PetActionButton",
+        "StanceButton",
+        "ExtraActionButton",
+        "BT4Button",
+        "DominosActionButton",
+        "ElvUI_Bar1Button",
+        "ElvUI_Bar2Button",
+        "ElvUI_Bar3Button",
+        "ElvUI_Bar4Button",
+        "ElvUI_Bar5Button",
+        "ElvUI_Bar6Button",
+    }
+
+    if _G then
+        for _, prefix in ipairs(prefixes) do
+            for index = 1, 120 do
+                addFrame(_G[prefix .. index])
+            end
+        end
+    end
+
+    self.actionButtonFrames = frames
+end
+
+function CDR:GetActionCooldownSnapshot()
+    local now = GetTime()
+    local snapshot = self.actionCooldownSnapshot
+    if snapshot and snapshot.expiresAt and snapshot.expiresAt > now then
+        return snapshot
+    end
+
+    snapshot = {
+        expiresAt = now + CONST.ACTION_SNAPSHOT_MAX_AGE_SECONDS,
+        bySlot = {},
+        bySpellID = {},
+        byNameKey = {},
+        byTexture = {},
+    }
+
+    for slot = CONST.ACTION_SLOT_FIRST, CONST.ACTION_SLOT_LAST do
+        local actionSpellID = U.GetActionSpellID(slot)
+        local texture = GetActionTextureCompat(slot)
+        if actionSpellID or texture then
+            local actionName = actionSpellID and U.GetSpellInfoCompat(actionSpellID)
+            local nameKey = U.NormalizeName(actionName)
+            local actionOnCooldown, remaining, actionHasUsableCharge = U.GetActionCooldownStatus(slot)
+            local record = {
+                slot = slot,
+                spellID = actionSpellID,
+                nameKey = nameKey,
+                texture = texture,
+                onCooldown = actionOnCooldown,
+                remaining = remaining,
+                hasUsableCharge = actionHasUsableCharge,
+            }
+
+            snapshot.bySlot[slot] = record
+            AddActionSnapshotRecord(snapshot.bySpellID, actionSpellID, record)
+            AddActionSnapshotRecord(snapshot.byNameKey, nameKey, record)
+            AddActionSnapshotTextureRecords(snapshot.byTexture, texture, record)
+        end
+    end
+
+    self:RefreshActionButtonFrames()
+    for _, frame in ipairs(self.actionButtonFrames or {}) do
+        if IsFrameVisible(frame) then
+            local slot = GetFrameActionSlot(frame)
+            local actionSpellID = slot and U.GetActionSpellID(slot)
+            if not actionSpellID then
+                actionSpellID = GetFrameSpellID(frame)
+            end
+            local texture = GetFrameIconTexture(frame)
+            local frameOnCooldown, frameRemaining = GetCooldownFrameRemaining(GetFrameCooldownFrame(frame))
+            local actionOnCooldown, actionRemaining, actionHasUsableCharge = false, 0, false
+            if slot then
+                actionOnCooldown, actionRemaining, actionHasUsableCharge = U.GetActionCooldownStatus(slot)
+                if actionHasUsableCharge then
+                    frameOnCooldown = false
+                    frameRemaining = 0
+                end
+            end
+
+            local onCooldown = frameOnCooldown or actionOnCooldown
+            local remaining = math.max(frameRemaining or 0, actionRemaining or 0)
+            if slot or actionSpellID or texture then
+                local actionName = actionSpellID and U.GetSpellInfoCompat(actionSpellID)
+                local nameKey = U.NormalizeName(actionName)
+                local frameName = GetFrameName(frame)
+                local record = {
+                    recordKey = "frame:" .. tostring(frameName or frame),
+                    slot = slot,
+                    spellID = actionSpellID,
+                    nameKey = nameKey,
+                    texture = texture,
+                    onCooldown = onCooldown,
+                    remaining = remaining,
+                    hasUsableCharge = actionHasUsableCharge,
+                }
+
+                if slot and snapshot.bySlot[slot] and onCooldown and remaining > (snapshot.bySlot[slot].remaining or 0) then
+                    snapshot.bySlot[slot].onCooldown = true
+                    snapshot.bySlot[slot].remaining = remaining
+                elseif slot and not snapshot.bySlot[slot] then
+                    snapshot.bySlot[slot] = record
+                end
+
+                AddActionSnapshotRecord(snapshot.bySpellID, actionSpellID, record)
+                AddActionSnapshotRecord(snapshot.byNameKey, nameKey, record)
+                AddActionSnapshotTextureRecords(snapshot.byTexture, texture, record)
+            end
+        end
+    end
+
+    self.actionCooldownSnapshot = snapshot
+    return snapshot
+end
+
 function CDR:GetWatchedChargeProfile(spellID)
     local maxCharges = 0
     local currentCharges
@@ -1005,7 +1485,67 @@ function CDR:GetWatchedCooldownStatus(spellID)
     local candidates = self:GetWatchedCandidates(spellID)
     local state = self.cooldownState and self.cooldownState[spellID]
     local now = GetTime()
+    local saved = self.db.spells[spellID]
+    local savedNameKey = saved and (saved.nameKey or U.NormalizeName(saved.name))
+    local candidateLookup = U.BuildLookup(candidates)
+    local snapshot = self:GetActionCooldownSnapshot()
+    local checkedActionRecords = {}
+    local actionOnCooldown = false
+    local actionChargeReadyConfirmed = false
+    local function checkActionRecord(record)
+        local recordKey = record and (record.recordKey or record.slot or tostring(record))
+        if not record or checkedActionRecords[recordKey] then
+            return
+        end
 
+        checkedActionRecords[recordKey] = true
+        if record.hasUsableCharge then
+            actionChargeReadyConfirmed = true
+        end
+        if record.onCooldown then
+            actionOnCooldown = true
+            onCooldown = true
+            if record.remaining > longestRemaining then
+                longestRemaining = record.remaining
+            end
+        end
+    end
+
+    for _, slot in ipairs(saved and saved.actionSlots or {}) do
+        local record = snapshot.bySlot[slot]
+        if record then
+            checkActionRecord(record)
+        elseif self:IsWatchedActionSlot(spellID, slot, candidateLookup) then
+            local actionOnCooldownNow, remaining, actionHasUsableCharge = U.GetActionCooldownStatus(slot)
+            checkActionRecord({
+                slot = slot,
+                onCooldown = actionOnCooldownNow,
+                remaining = remaining,
+                hasUsableCharge = actionHasUsableCharge,
+            })
+        end
+    end
+
+    for _, candidateID in ipairs(candidates) do
+        for _, record in ipairs(snapshot.bySpellID[candidateID] or {}) do
+            checkActionRecord(record)
+        end
+    end
+
+    for _, record in ipairs(snapshot.byNameKey[savedNameKey] or {}) do
+        checkActionRecord(record)
+    end
+
+    local savedIcon = saved and saved.icon
+    for _, key in ipairs(GetTextureLookupKeys(savedIcon)) do
+        for _, record in ipairs(snapshot.byTexture[key] or {}) do
+            checkActionRecord(record)
+        end
+    end
+
+    -- During heavy combat WoW can briefly report empty action cooldowns; only
+    -- explicit usable charges are stable enough to bypass fallback blocks.
+    local actionReadyConfirmed = actionChargeReadyConfirmed and not actionOnCooldown
     local maxCharges, rechargeDuration, currentCharges, rechargeRemaining = self:GetWatchedChargeProfile(spellID)
     if state and maxCharges > 1 then
         local trackedCharges, readyAt = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
@@ -1028,23 +1568,32 @@ function CDR:GetWatchedCooldownStatus(spellID)
                 if currentCharges >= maxCharges then
                     state.trackedChargeReadyAt = nil
                 end
-                return false, 0
+                return false, 0, true
             end
             if rechargeRemaining > 0 then
-                return true, rechargeRemaining
+                if actionReadyConfirmed then
+                    return false, 0, true
+                end
+                return true, math.max(longestRemaining, rechargeRemaining), false
             end
             if rechargeDuration > CONST.GCD_IGNORE_SECONDS and not state.trackedChargeReadyAt then
                 state.trackedChargeReadyAt = now + rechargeDuration
             end
             if state.trackedChargeReadyAt and state.trackedChargeReadyAt > now then
-                return true, state.trackedChargeReadyAt - now
+                if actionReadyConfirmed then
+                    return false, 0, true
+                end
+                return true, math.max(longestRemaining, state.trackedChargeReadyAt - now), false
             end
         elseif trackedCharges then
             if trackedCharges > 0 then
-                return false, 0
+                return false, 0, actionReadyConfirmed
             end
             if readyAt and readyAt > now then
-                return true, readyAt - now
+                if actionReadyConfirmed then
+                    return false, 0, true
+                end
+                return true, math.max(longestRemaining, readyAt - now), false
             end
         end
     end
@@ -1059,29 +1608,11 @@ function CDR:GetWatchedCooldownStatus(spellID)
         end
     end
 
-    local saved = self.db.spells[spellID]
-    local candidateLookup = U.BuildLookup(candidates)
-    for _, slot in ipairs(saved and saved.actionSlots or {}) do
-        if self:IsWatchedActionSlot(spellID, slot, candidateLookup) then
-            local actionOnCooldown, remaining = U.GetActionCooldownStatus(slot)
-            if actionOnCooldown then
-                onCooldown = true
-                if remaining > longestRemaining then
-                    longestRemaining = remaining
-                end
-            end
-        end
-    end
-
     if onCooldown then
-        return true, longestRemaining
+        return true, longestRemaining, false
     end
 
-    if state and state.pendingReadyAt and state.pendingReadyAt > now then
-        return true, state.pendingReadyAt - now
-    end
-
-    return onCooldown, longestRemaining
+    return false, 0, actionReadyConfirmed
 end
 
 function CDR:GetWatchedChargeDisplay(spellID)

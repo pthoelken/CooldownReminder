@@ -43,6 +43,7 @@ The addon is built for character-specific cooldown tracking: it reads your curre
 /cdr          Open settings
 /cdr test     Show a test reminder
 /cdr reset    Reset reminder position
+/cdr toggle   Toggle cooldown monitoring
 /cdr ac       Enable cooldown monitoring
 /cdr ia       Disable cooldown monitoring
 ```

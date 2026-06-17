@@ -11,7 +11,7 @@ CooldownReminder is a lightweight World of Warcraft addon that shows a compact r
 - Drag watched spells to define the fixed reminder order.
 - Move and scale the reminder stack directly on screen.
 - Optional spell names, sounds, load message, and top-most reminder behavior.
-- Global monitoring toggle in the settings window or with `/cdr ac` and `/cdr ia`.
+- Global monitoring toggle in the settings window or with `/cdr toggle`, `/cdr ac`, and `/cdr ia`.
 - Character-specific saved settings.
 - Localized UI for English, Portuguese, Spanish, French, German, Italian, Russian, Simplified Chinese, Korean, and Traditional Chinese.
 
@@ -20,6 +20,7 @@ CooldownReminder is a lightweight World of Warcraft addon that shows a compact r
 - `/cdr` opens the CooldownReminder window.
 - `/cdr test` shows a temporary reminder.
 - `/cdr reset` resets the reminder position.
+- `/cdr toggle` toggles cooldown monitoring.
 - `/cdr ac` enables cooldown monitoring.
 - `/cdr ia` disables cooldown monitoring.
 
