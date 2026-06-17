@@ -130,6 +130,17 @@ function CDR:CreateReminderRow(index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     row.icon = icon
 
+    local charges = row:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    charges:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 0)
+    charges:SetJustifyH("RIGHT")
+    charges:SetTextColor(1, 1, 1, 1)
+    if charges.SetShadowColor then
+        charges:SetShadowColor(0, 0, 0, 1)
+        charges:SetShadowOffset(1, -1)
+    end
+    charges:Hide()
+    row.charges = charges
+
     local title = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("LEFT", icon, "RIGHT", 10, 0)
     title:SetPoint("RIGHT", -10, 0)
@@ -198,11 +209,19 @@ function CDR:GetReadyList()
     for spellID in pairs(self.readySpells or {}) do
         local saved = self.db.spells[spellID]
         if saved then
-            table.insert(ready, {
-                id = spellID,
-                name = saved.name or ("Spell " .. spellID),
-                icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
-            })
+            local onCooldown = self:GetWatchedCooldownStatus(spellID)
+            if onCooldown then
+                self.readySpells[spellID] = nil
+            else
+                local charges, maxCharges = self:GetWatchedChargeDisplay(spellID)
+                table.insert(ready, {
+                    id = spellID,
+                    name = saved.name or ("Spell " .. spellID),
+                    icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
+                    charges = charges,
+                    maxCharges = maxCharges,
+                })
+            end
         elseif self.testReadySpell and self.testReadySpell.id == spellID then
             table.insert(ready, {
                 id = spellID,
@@ -282,6 +301,13 @@ function CDR:RefreshReminderAlerts()
             row:SetPoint("TOPLEFT", UI.alertRows[index - 1], "BOTTOMLEFT", 0, -CONST.ALERT_ROW_SPACING)
         end
         row.icon:SetTexture(spell.icon)
+        if spell.maxCharges and spell.maxCharges > 1 and spell.charges then
+            row.charges:SetText(tostring(spell.charges))
+            row.charges:Show()
+        else
+            row.charges:SetText("")
+            row.charges:Hide()
+        end
         row.title:SetText(spell.name)
         row.title:SetShown(showTitle)
         row:Show()
@@ -289,6 +315,9 @@ function CDR:RefreshReminderAlerts()
 
     for index = count + 1, #UI.alertRows do
         UI.alertRows[index].spellID = nil
+        if UI.alertRows[index].charges then
+            UI.alertRows[index].charges:Hide()
+        end
         UI.alertRows[index]:Hide()
     end
 

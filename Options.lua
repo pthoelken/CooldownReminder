@@ -662,7 +662,7 @@ function CDR:GetSpellCooldownText(spell)
         end
 
         local _, maxCharges = U.GetSpellChargesCompat(spellID)
-        if maxCharges and maxCharges > 1 then
+        if U.IsGreaterThan(maxCharges, 1) then
             hasCharges = true
         end
     end
@@ -670,14 +670,14 @@ function CDR:GetSpellCooldownText(spell)
     for _, slot in ipairs(spell.actionSlots or {}) do
         if GetActionCooldown then
             local _, duration = GetActionCooldown(slot)
-            if duration and duration > longestCooldown then
+            if U.IsGreaterThan(duration, longestCooldown) then
                 longestCooldown = duration
             end
         end
 
         if GetActionCharges then
-            local _, maxCharges = GetActionCharges(slot)
-            if maxCharges and maxCharges > 1 then
+            local maxCharges = select(2, GetActionCharges(slot))
+            if U.IsGreaterThan(maxCharges, 1) then
                 hasCharges = true
             end
         end

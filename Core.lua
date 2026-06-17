@@ -118,13 +118,22 @@ function U.CopyDefaults(target, source)
 end
 
 function U.Clamp(value, minValue, maxValue)
-    if value < minValue then
+    local ok, result = pcall(function()
+        if value < minValue then
+            return minValue
+        end
+        if value > maxValue then
+            return maxValue
+        end
+        return value
+    end)
+    if ok then
+        return result
+    end
+    if minValue and minValue > 0 then
         return minValue
     end
-    if value > maxValue then
-        return maxValue
-    end
-    return value
+    return 0
 end
 
 function U.Round(value)
@@ -144,8 +153,13 @@ function U.NormalizeName(name)
 end
 
 function U.ToSpellID(value)
-    local spellID = tonumber(value)
-    if spellID and spellID > 0 then
+    local ok, spellID = pcall(function()
+        local numericValue = tonumber(value)
+        if numericValue and numericValue > 0 then
+            return numericValue
+        end
+    end)
+    if ok then
         return spellID
     end
 end

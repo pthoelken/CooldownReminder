@@ -253,17 +253,31 @@ function CDR:OnSpellCastSucceeded(unitTarget, _, spellID)
         U.AddUnique(saved.aliases, lookup, spellID)
     end
 
-    local currentCharges, maxCharges = self:GetWatchedChargeInfo(watchedSpellID)
-    if maxCharges > 1 and currentCharges > 0 then
-        self:MarkReady(watchedSpellID)
+    state.pendingReadyAt = nil
+    local isChargeSpell, trackedCharges, _, trackedRemaining = self:RecordWatchedChargeCast(watchedSpellID, state)
+    if isChargeSpell then
+        if trackedCharges > 0 then
+            state.seenCooldown = false
+            state.remaining = 0
+            self:MarkReady(watchedSpellID)
+        else
+            state.seenCooldown = true
+            state.remaining = trackedRemaining
+            self.readySpells[watchedSpellID] = nil
+            if trackedRemaining > CONST.GCD_IGNORE_SECONDS then
+                self:QueueReadyFallback(watchedSpellID, trackedRemaining)
+            end
+        end
     else
         self.readySpells[watchedSpellID] = nil
     end
-    state.pendingReadyAt = nil
+
     local baseCooldown = self:GetWatchedBaseCooldown(watchedSpellID)
     if baseCooldown > CONST.GCD_IGNORE_SECONDS then
         saved.baseCooldown = baseCooldown
-        self:QueueReadyFallback(watchedSpellID, baseCooldown)
+        if not isChargeSpell or (trackedCharges <= 0 and trackedRemaining <= CONST.GCD_IGNORE_SECONDS) then
+            self:QueueReadyFallback(watchedSpellID, baseCooldown)
+        end
     end
     self:RefreshReminderAlerts()
 
