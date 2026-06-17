@@ -7,6 +7,43 @@ local function L(key)
     return CDR:L(key)
 end
 
+local ACE_OPTIONS_NAME = "CooldownReminder"
+
+local function GetAceLibrary(name)
+    if type(LibStub) ~= "table" or type(LibStub.GetLibrary) ~= "function" then
+        return nil
+    end
+
+    local ok, library = pcall(LibStub.GetLibrary, LibStub, name, true)
+    if ok then
+        return library
+    end
+end
+
+local function BuildSoundValues()
+    local values = {}
+    for _, option in ipairs(CDR.SOUND_OPTIONS) do
+        values[option.id] = U.GetSoundLabel(option.id)
+    end
+    return values
+end
+
+local function BuildLanguageValues()
+    local values = {}
+    for _, option in ipairs(CDR.LANGUAGE_OPTIONS) do
+        values[option.id] = U.GetLanguageLabel(option.id)
+    end
+    return values
+end
+
+local function BuildLayoutValues()
+    local values = {}
+    for _, option in ipairs(CDR.REMINDER_LAYOUT_OPTIONS) do
+        values[option.id] = U.GetReminderLayoutLabel(option.id)
+    end
+    return values
+end
+
 function CDR:CreateTab(parent, id, text)
     local tabName = "CooldownReminderConfigFrameTab" .. id
     local tab = CreateFrame("Button", tabName, parent, BackdropTemplateMixin and "BackdropTemplate")
@@ -547,9 +584,300 @@ function CDR:CreateConfigWindow()
     self:RefreshConfig()
 end
 
-function CDR:RegisterSettingsCategory()
-    if self.settingsCategory or not Settings or not Settings.RegisterCanvasLayoutCategory then
+function CDR:NotifyAceOptionsChanged()
+    if not self.aceOptionsRegistered then
         return
+    end
+
+    local registry = GetAceLibrary("AceConfigRegistry-3.0")
+    if registry and registry.NotifyChange then
+        pcall(registry.NotifyChange, registry, ACE_OPTIONS_NAME)
+    end
+end
+
+function CDR:GetAceOptionsTable()
+    return {
+        type = "group",
+        name = "CooldownReminder",
+        args = {
+            intro = {
+                type = "description",
+                name = function()
+                    return CDR:L("BLIZZ_OPTIONS_HINT")
+                end,
+                fontSize = "medium",
+                width = "full",
+                order = 1,
+            },
+            open = {
+                type = "execute",
+                name = function()
+                    return CDR:L("OPEN_CDR_OPTIONS")
+                end,
+                func = function()
+                    CDR:ToggleConfig()
+                end,
+                width = "normal",
+                order = 2,
+            },
+            general = {
+                type = "group",
+                name = function()
+                    return CDR:L("TAB_SETTINGS")
+                end,
+                inline = true,
+                order = 10,
+                args = {
+                    monitoring = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("ENABLE_MONITORING")
+                        end,
+                        get = function()
+                            return CDR.db.monitoringEnabled ~= false
+                        end,
+                        set = function(_, value)
+                            CDR:SetMonitoringEnabled(value, true)
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 1,
+                    },
+                    loadMessage = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("SHOW_LOAD_MESSAGE")
+                        end,
+                        get = function()
+                            return CDR.db.ui.showLoadMessage ~= false
+                        end,
+                        set = function(_, value)
+                            CDR.db.ui.showLoadMessage = value == true
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 2,
+                    },
+                    language = {
+                        type = "select",
+                        name = function()
+                            return CDR:L("LANGUAGE")
+                        end,
+                        values = BuildLanguageValues,
+                        get = function()
+                            return CDR.db.language or "auto"
+                        end,
+                        set = function(_, value)
+                            CDR.db.language = value
+                            CDR:ApplyLocale()
+                            CDR:RefreshConfigTexts()
+                            CDR:RefreshConfig()
+                            CDR:RefreshReminderAlerts()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        style = "dropdown",
+                        width = "double",
+                        order = 3,
+                    },
+                },
+            },
+            reminder = {
+                type = "group",
+                name = "Reminder",
+                inline = true,
+                order = 20,
+                args = {
+                    showTitle = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("SHOW_TITLE")
+                        end,
+                        get = function()
+                            return CDR.db.reminder.showTitle ~= false
+                        end,
+                        set = function(_, value)
+                            CDR.db.reminder.showTitle = value == true
+                            CDR:RefreshReminderAlerts()
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 1,
+                    },
+                    topMost = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("REMINDER_TOPMOST")
+                        end,
+                        get = function()
+                            return CDR.db.reminder.topMost == true
+                        end,
+                        set = function(_, value)
+                            CDR:SetReminderTopMost(value)
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 2,
+                    },
+                    layout = {
+                        type = "select",
+                        name = function()
+                            return CDR:L("REMINDER_LAYOUT")
+                        end,
+                        values = BuildLayoutValues,
+                        get = function()
+                            return CDR.db.reminder.layout or "vertical"
+                        end,
+                        set = function(_, value)
+                            CDR:SetReminderLayout(value)
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        style = "dropdown",
+                        width = "double",
+                        order = 3,
+                    },
+                    scale = {
+                        type = "range",
+                        name = function()
+                            return CDR:L("REMINDER_SCALE")
+                        end,
+                        min = 0.6,
+                        max = 2,
+                        step = 0.05,
+                        get = function()
+                            return CDR.db.reminder.scale or 1
+                        end,
+                        set = function(_, value)
+                            CDR:SetReminderScale(value)
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 4,
+                    },
+                    reset = {
+                        type = "execute",
+                        name = function()
+                            return CDR:L("RESET_POSITION")
+                        end,
+                        func = function()
+                            CDR:ResetReminderLayout()
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        order = 5,
+                    },
+                    test = {
+                        type = "execute",
+                        name = function()
+                            return CDR:L("TEST_REMINDER")
+                        end,
+                        func = function()
+                            CDR:TestReminder()
+                        end,
+                        order = 6,
+                    },
+                },
+            },
+            sound = {
+                type = "group",
+                name = function()
+                    return CDR:L("SOUND")
+                end,
+                inline = true,
+                order = 30,
+                args = {
+                    enabled = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("ENABLE_SOUND")
+                        end,
+                        get = function()
+                            return CDR.db.sound.enabled == true
+                        end,
+                        set = function(_, value)
+                            CDR.db.sound.enabled = value == true
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 1,
+                    },
+                    sound = {
+                        type = "select",
+                        name = function()
+                            return CDR:L("SOUND")
+                        end,
+                        values = BuildSoundValues,
+                        get = function()
+                            return CDR.db.sound.id
+                        end,
+                        set = function(_, value)
+                            CDR.db.sound.id = U.GetSoundOption(value).id
+                            CDR:RefreshConfig()
+                            CDR:PlaySelectedSound(true)
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        style = "dropdown",
+                        width = "double",
+                        order = 2,
+                    },
+                    testSound = {
+                        type = "execute",
+                        name = function()
+                            return CDR:L("TEST_SOUND")
+                        end,
+                        func = function()
+                            CDR:PlaySelectedSound(true)
+                        end,
+                        order = 3,
+                    },
+                },
+            },
+        },
+    }
+end
+
+function CDR:RegisterAceSettingsCategory()
+    if not Settings or not Settings.RegisterCanvasLayoutCategory then
+        return false
+    end
+
+    local aceConfig = GetAceLibrary("AceConfig-3.0")
+    local aceDialog = GetAceLibrary("AceConfigDialog-3.0")
+    if not aceConfig or not aceDialog then
+        return false
+    end
+
+    local ok, frame, categoryID = pcall(function()
+        if not self.aceOptionsRegistered then
+            aceConfig:RegisterOptionsTable(ACE_OPTIONS_NAME, function()
+                return CDR:GetAceOptionsTable()
+            end)
+            self.aceOptionsRegistered = true
+        end
+
+        local optionsFrame, optionsCategoryID = aceDialog:AddToBlizOptions(ACE_OPTIONS_NAME, "CooldownReminder")
+        if aceDialog.SetDefaultSize then
+            aceDialog:SetDefaultSize(ACE_OPTIONS_NAME, 620, 520)
+        end
+        return optionsFrame, optionsCategoryID
+    end)
+
+    if not ok then
+        self.aceOptionsRegistered = false
+        return false
+    end
+
+    self.settingsCategory = frame
+    self.settingsCategoryID = categoryID
+    return true
+end
+
+function CDR:RegisterFallbackSettingsCategory()
+    if not Settings or not Settings.RegisterCanvasLayoutCategory then
+        return false
     end
 
     local panel = CreateFrame("Frame", "CooldownReminderBlizzardSettingsPanel")
@@ -585,6 +913,19 @@ function CDR:RegisterSettingsCategory()
         Settings.RegisterAddOnCategory(category)
     end
     self.settingsCategory = category
+    return true
+end
+
+function CDR:RegisterSettingsCategory()
+    if self.settingsCategory then
+        return
+    end
+
+    if self:RegisterAceSettingsCategory() then
+        return
+    end
+
+    self:RegisterFallbackSettingsCategory()
 end
 
 function CDR:RefreshConfigTexts()

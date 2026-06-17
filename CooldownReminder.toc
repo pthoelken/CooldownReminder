@@ -9,6 +9,11 @@
 ## Category: Combat
 ## IconTexture: Interface\Icons\spell_holy_borrowedtime
 
+Libs\Ace3\LibStub\LibStub.lua
+Libs\Ace3\CallbackHandler-1.0\CallbackHandler-1.0.xml
+Libs\Ace3\AceGUI-3.0\AceGUI-3.0.xml
+Libs\Ace3\AceConfig-3.0\AceConfig-3.0.xml
+
 Localization\enUS.lua
 Localization\deDE.lua
 Localization\frFR.lua
