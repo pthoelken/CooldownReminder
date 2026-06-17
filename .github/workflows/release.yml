@@ -12,12 +12,25 @@ jobs:
   release:
     name: Package and release CooldownReminder
     runs-on: ubuntu-latest
-    env:
-      HAS_CURSEFORGE: ${{ secrets.CURSEFORGE_API_TOKEN != '' && secrets.CURSEFORGE_PROJECT_ID != '' }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Validate CurseForge secrets
+        shell: bash
+        env:
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+        run: |
+          if [ -z "${CURSEFORGE_API_TOKEN}" ]; then
+            echo "CURSEFORGE_API_TOKEN repository secret is required."
+            exit 1
+          fi
+          if [ -z "${CURSEFORGE_PROJECT_ID}" ]; then
+            echo "CURSEFORGE_PROJECT_ID repository secret is required."
+            exit 1
+          fi
 
       - name: Read addon metadata
         id: meta
@@ -32,28 +45,15 @@ jobs:
       - name: Build zip package
         shell: bash
         run: |
-          mkdir -p dist/CooldownReminder
-          rsync -a \
-            --exclude '.git' \
-            --exclude '.github' \
-            --exclude 'dist' \
-            --exclude '.DS_Store' \
-            ./ dist/CooldownReminder/
+          rm -rf dist
+          mkdir -p dist/CooldownReminder/Localization
+          cp CooldownReminder.toc Core.lua Spells.lua Reminder.lua Options.lua Events.lua dist/CooldownReminder/
+          cp Localization/*.lua dist/CooldownReminder/Localization/
           cd dist
-          zip -r "CooldownReminder-${{ steps.meta.outputs.version }}.zip" CooldownReminder
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: CooldownReminder ${{ steps.meta.outputs.version }}
-          body_path: DESCRIPTION.md
-          files: dist/CooldownReminder-${{ steps.meta.outputs.version }}.zip
-          make_latest: true
+          zip -r -X "CooldownReminder-${{ steps.meta.outputs.version }}.zip" CooldownReminder
 
       - name: Resolve CurseForge game version IDs
         id: curse_versions
-        if: ${{ env.HAS_CURSEFORGE == 'true' }}
         shell: bash
         env:
           CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
@@ -63,6 +63,7 @@ jobs:
           import json
           import os
           import re
+          import urllib.error
           import urllib.request
 
           token = os.environ["CURSEFORGE_API_TOKEN"]
@@ -90,19 +91,38 @@ jobs:
               normalize(retail_version),
           }
 
-          request = urllib.request.Request(
-              "https://api.curseforge.com/v2/games/1/versions",
-              headers={
-                  "Accept": "application/json",
-                  "x-api-key": token,
-              },
-          )
-
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  payload = json.load(response)
-          except Exception as exc:
-              raise SystemExit(f"Could not fetch CurseForge game versions: {exc}")
+          endpoints = [
+              (
+                  "legacy wow.curseforge.com",
+                  "https://wow.curseforge.com/api/game/versions",
+                  {},
+              ),
+              (
+                  "legacy curseforge.com",
+                  "https://www.curseforge.com/api/game/versions",
+                  {},
+              ),
+              (
+                  "legacy forgesvc",
+                  "https://addons-ecs.forgesvc.net/api/v2/game/versions",
+                  {},
+              ),
+              (
+                  "CurseForge Core API v1",
+                  "https://api.curseforge.com/v1/games/1/versions",
+                  {"x-api-key": token},
+              ),
+              (
+                  "CurseForge Core API v1 retail type",
+                  "https://api.curseforge.com/v1/games/1/version-types/517/versions",
+                  {"x-api-key": token},
+              ),
+              (
+                  "CurseForge Core API v2",
+                  "https://api.curseforge.com/v2/games/1/versions",
+                  {"x-api-key": token},
+              ),
+          ]
 
           def get_numeric_id(item):
               for key in ("id", "gameVersionId", "gameVersionID"):
@@ -136,33 +156,70 @@ jobs:
                       return True
               return False
 
-          retail_matches = []
-          any_matches = []
-          seen = set()
+          def collect_matches(payload):
+              retail_matches = []
+              any_matches = []
+              seen = set()
 
-          def walk(value, in_retail_context=False):
-              if isinstance(value, dict):
-                  retail_context = in_retail_context or has_retail_marker(value)
-                  numeric_id = get_numeric_id(value)
-                  if numeric_id and numeric_id not in (1, 517) and is_target_version(value):
-                      if numeric_id not in seen:
-                          seen.add(numeric_id)
-                          any_matches.append(numeric_id)
-                          if retail_context:
-                              retail_matches.append(numeric_id)
-                  for child in value.values():
-                      walk(child, retail_context)
-              elif isinstance(value, list):
-                  for child in value:
-                      walk(child, in_retail_context)
+              def walk(value, in_retail_context=False):
+                  if isinstance(value, dict):
+                      retail_context = in_retail_context or has_retail_marker(value)
+                      numeric_id = get_numeric_id(value)
+                      if numeric_id and numeric_id not in (1, 517) and is_target_version(value):
+                          if numeric_id not in seen:
+                              seen.add(numeric_id)
+                              any_matches.append(numeric_id)
+                              if retail_context:
+                                  retail_matches.append(numeric_id)
+                      for child in value.values():
+                          walk(child, retail_context)
+                  elif isinstance(value, list):
+                      for child in value:
+                          walk(child, in_retail_context)
 
-          walk(payload)
-          game_version_ids = retail_matches or any_matches
+              walk(payload)
+              return retail_matches or any_matches
+
+          failures = []
+          game_version_ids = []
+
+          for label, url, extra_headers in endpoints:
+              headers = {
+                  "Accept": "application/json",
+                  "User-Agent": "CooldownReminder release workflow",
+              }
+              headers.update(extra_headers)
+              request = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      payload = json.load(response)
+              except urllib.error.HTTPError as exc:
+                  failures.append(f"{label}: HTTP {exc.code} {exc.reason}")
+                  print(f"Skipping {label}: HTTP {exc.code} {exc.reason}")
+                  continue
+              except Exception as exc:
+                  failures.append(f"{label}: {exc}")
+                  print(f"Skipping {label}: {exc}")
+                  continue
+
+              game_version_ids = collect_matches(payload)
+              if game_version_ids:
+                  print(f"Resolved CurseForge game version IDs via {label}.")
+                  break
+
+              failures.append(f"{label}: no matching Retail version for {retail_version}")
+              print(f"Skipping {label}: no matching Retail version for {retail_version}")
 
           if not game_version_ids:
+              details = "\n".join(f"- {failure}" for failure in failures)
               raise SystemExit(
                   f"No CurseForge game version ID found for WoW interface {wow_interface} "
-                  f"(Retail version {retail_version}). Check whether CurseForge already lists this version."
+                  f"(Retail version {retail_version}).\n"
+                  f"Tried these sources:\n{details}\n"
+                  "If CurseForge has not listed this WoW version yet, wait until it appears there. "
+                  "If every authenticated Core API request returns 403, the configured token is accepted "
+                  "for uploads but not for CurseForge Core API lookup; the workflow already tries the "
+                  "public legacy lookup sources first."
               )
 
           ids = ",".join(str(value) for value in game_version_ids)
@@ -172,7 +229,6 @@ jobs:
           PY
 
       - name: Upload to CurseForge
-        if: ${{ env.HAS_CURSEFORGE == 'true' }}
         shell: bash
         env:
           CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
@@ -202,8 +258,17 @@ jobs:
           }
           Path("dist/metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
           PY
-          curl -sS \
+          curl --fail-with-body -sS \
             -H "x-api-token: ${CURSEFORGE_API_TOKEN}" \
             -F "metadata=<dist/metadata.json" \
             -F "file=@dist/CooldownReminder-${ADDON_VERSION}.zip" \
             "https://wow.curseforge.com/api/projects/${CURSEFORGE_PROJECT_ID}/upload-file"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: CooldownReminder ${{ steps.meta.outputs.version }}
+          body_path: DESCRIPTION.md
+          files: dist/CooldownReminder-${{ steps.meta.outputs.version }}.zip
+          make_latest: true
