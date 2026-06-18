@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/Logo.png" alt="CooldownReminder logo" width="160">
+  <img src="images/cdr-logo.png" alt="CooldownReminder logo" width="160">
 </p>
 
 <h1 align="center">CooldownReminder</h1>
@@ -14,7 +14,18 @@
   <img alt="Localization" src="https://img.shields.io/badge/locales-11-blue">
 </p>
 
-![CooldownReminder UI preview](images/cooldownreminder.png)
+## UI Preview
+
+![CooldownReminder UI preview](images/cdr-spells.png)
+
+## UI Preview Spell Bar
+
+![CooldownReminder UI preview](images/cdr-action-bar.png)
+
+## UI Settings Preview
+
+![CooldownReminder UI Settings Preview](images/cdr-settings.png)
+![CooldownReminder UI Settings Preview](images/cdr-expert-settings.png)
 
 ## What It Does
 
