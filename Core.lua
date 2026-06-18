@@ -28,16 +28,16 @@ CDR.UI = {}
 CDR.Utils = {}
 
 local CONST = {
-    READY_SCAN_INTERVAL = 0.5,
-    READY_SCAN_DEBOUNCE_SECONDS = 0.05,
+    READY_SCAN_INTERVAL = 0.1,
+    READY_SCAN_DEBOUNCE_SECONDS = 0.03,
     UI_REFRESH_DEBOUNCE_SECONDS = 0.01,
-    READY_CONFIRM_SECONDS = 0.45,
-    ACTION_READY_CONFIRM_SECONDS = 0.18,
-    COMBAT_READY_CONFIRM_SECONDS = 2.75,
-    POST_CAST_SETTLE_SECONDS = 1,
+    READY_CONFIRM_SECONDS = 0.30,
+    ACTION_READY_CONFIRM_SECONDS = 0.10,
+    COMBAT_READY_CONFIRM_SECONDS = 0.45,
+    POST_CAST_SETTLE_SECONDS = 0.6,
     ACTION_SNAPSHOT_MAX_AGE_SECONDS = 0.03,
     GCD_IGNORE_SECONDS = 2,
-    SPELL_GRID_COLUMNS = 12,
+    SPELL_GRID_COLUMNS = 14,
     SPELL_GRID_ROWS = 3,
     SPELL_GRID_ICON_SIZE = 32,
     SPELL_GRID_ICON_SPACING = 6,
@@ -53,6 +53,94 @@ local CONST = {
     ACTION_SLOT_LAST = 180,
 }
 CDR.CONST = CONST
+
+CDR.EXPERT_TIMING_OPTIONS = {
+    {
+        key = "READY_SCAN_INTERVAL",
+        labelKey = "EXPERT_READY_SCAN_INTERVAL",
+        descKey = "EXPERT_READY_SCAN_INTERVAL_DESC",
+        default = CONST.READY_SCAN_INTERVAL,
+        min = 0.05,
+        max = 0.6,
+        step = 0.05,
+        precision = 2,
+    },
+    {
+        key = "READY_SCAN_DEBOUNCE_SECONDS",
+        labelKey = "EXPERT_READY_SCAN_DEBOUNCE",
+        descKey = "EXPERT_READY_SCAN_DEBOUNCE_DESC",
+        default = CONST.READY_SCAN_DEBOUNCE_SECONDS,
+        min = 0,
+        max = 0.2,
+        step = 0.01,
+        precision = 2,
+    },
+    {
+        key = "READY_CONFIRM_SECONDS",
+        labelKey = "EXPERT_READY_CONFIRM",
+        descKey = "EXPERT_READY_CONFIRM_DESC",
+        default = CONST.READY_CONFIRM_SECONDS,
+        min = 0,
+        max = 1.2,
+        step = 0.05,
+        precision = 2,
+    },
+    {
+        key = "ACTION_READY_CONFIRM_SECONDS",
+        labelKey = "EXPERT_ACTION_READY_CONFIRM",
+        descKey = "EXPERT_ACTION_READY_CONFIRM_DESC",
+        default = CONST.ACTION_READY_CONFIRM_SECONDS,
+        min = 0,
+        max = 0.8,
+        step = 0.05,
+        precision = 2,
+    },
+    {
+        key = "COMBAT_READY_CONFIRM_SECONDS",
+        labelKey = "EXPERT_COMBAT_READY_CONFIRM",
+        descKey = "EXPERT_COMBAT_READY_CONFIRM_DESC",
+        default = CONST.COMBAT_READY_CONFIRM_SECONDS,
+        min = 0,
+        max = 2,
+        step = 0.05,
+        precision = 2,
+    },
+    {
+        key = "POST_CAST_SETTLE_SECONDS",
+        labelKey = "EXPERT_POST_CAST_SETTLE",
+        descKey = "EXPERT_POST_CAST_SETTLE_DESC",
+        default = CONST.POST_CAST_SETTLE_SECONDS,
+        min = 0,
+        max = 2,
+        step = 0.05,
+        precision = 2,
+    },
+    {
+        key = "ACTION_SNAPSHOT_MAX_AGE_SECONDS",
+        labelKey = "EXPERT_ACTION_SNAPSHOT",
+        descKey = "EXPERT_ACTION_SNAPSHOT_DESC",
+        default = CONST.ACTION_SNAPSHOT_MAX_AGE_SECONDS,
+        min = 0,
+        max = 0.2,
+        step = 0.01,
+        precision = 2,
+    },
+    {
+        key = "GCD_IGNORE_SECONDS",
+        labelKey = "EXPERT_GCD_IGNORE",
+        descKey = "EXPERT_GCD_IGNORE_DESC",
+        default = CONST.GCD_IGNORE_SECONDS,
+        min = 0.5,
+        max = 3,
+        step = 0.05,
+        precision = 2,
+    },
+}
+
+local defaultExpertTiming = {}
+for _, option in ipairs(CDR.EXPERT_TIMING_OPTIONS) do
+    defaultExpertTiming[option.key] = option.default
+end
 
 CDR.SOUND_OPTIONS = {
     { id = "raid_warning", soundKit = "RAID_WARNING", fallback = 8959 },
@@ -129,6 +217,9 @@ CDR.defaults = {
         layout = "vertical",
         topMost = false,
     },
+    expert = {
+        timing = defaultExpertTiming,
+    },
 }
 
 local U = CDR.Utils
@@ -163,6 +254,18 @@ function U.Clamp(value, minValue, maxValue)
         return minValue
     end
     return 0
+end
+
+function U.RoundToStep(value, minValue, step)
+    value = tonumber(value or 0) or 0
+    step = tonumber(step or 0) or 0
+    if step <= 0 then
+        return value
+    end
+
+    minValue = tonumber(minValue or 0) or 0
+    local steps = math.floor(((value - minValue) / step) + 0.5)
+    return minValue + (steps * step)
 end
 
 function U.Round(value)
@@ -336,6 +439,117 @@ function U.GetReminderLayoutLabel(layoutID)
     return CDR:L("LAYOUT_" .. string.upper(option.id))
 end
 
+function CDR:GetExpertTimingOption(key)
+    for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
+        if option.key == key then
+            return option
+        end
+    end
+end
+
+function CDR:NormalizeExpertTimingValue(option, value)
+    value = tonumber(value)
+    if value == nil then
+        value = option.default
+    end
+    value = U.RoundToStep(value, option.min, option.step)
+    return U.Clamp(value, option.min, option.max)
+end
+
+function CDR:ApplyExpertTimingSettings(restartTicker)
+    if not self.db then
+        return
+    end
+
+    self.db.expert = self.db.expert or {}
+    self.db.expert.timing = self.db.expert.timing or {}
+    for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
+        local value = self:NormalizeExpertTimingValue(option, self.db.expert.timing[option.key])
+        self.db.expert.timing[option.key] = value
+        CONST[option.key] = value
+    end
+
+    if restartTicker ~= false and self.playerLoggedIn then
+        self:StartReadyScanTicker()
+    end
+end
+
+function CDR:RefreshAfterExpertTimingChange(rebuildSpellList)
+    if rebuildSpellList and type(self.BuildPlayerSpellList) == "function" then
+        self:BuildPlayerSpellList()
+    end
+    if self.playerLoggedIn and type(self.RequestCooldownScan) == "function" then
+        self:RequestCooldownScan(false, 0)
+    end
+    if type(self.RequestReminderRefresh) == "function" then
+        self:RequestReminderRefresh()
+    end
+    if type(self.RefreshConfig) == "function" then
+        self:RefreshConfig()
+    end
+end
+
+function CDR:SetExpertTimingValue(key, value)
+    if not self.db then
+        return
+    end
+
+    local option = self:GetExpertTimingOption(key)
+    if not option then
+        return
+    end
+
+    self.db.expert = self.db.expert or {}
+    self.db.expert.timing = self.db.expert.timing or {}
+    self.db.expert.timing[key] = self:NormalizeExpertTimingValue(option, value)
+    self:ApplyExpertTimingSettings(true)
+    self:RefreshAfterExpertTimingChange(key == "GCD_IGNORE_SECONDS")
+    if type(self.NotifyAceOptionsChanged) == "function" then
+        self:NotifyAceOptionsChanged()
+    end
+end
+
+function CDR:ResetExpertTimingSettings()
+    if not self.db then
+        return
+    end
+
+    self.db.expert = self.db.expert or {}
+    self.db.expert.timing = {}
+    for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
+        self.db.expert.timing[option.key] = option.default
+    end
+    self:ApplyExpertTimingSettings(true)
+    self:RefreshAfterExpertTimingChange(true)
+    if type(self.NotifyAceOptionsChanged) == "function" then
+        self:NotifyAceOptionsChanged()
+    end
+    if type(self.RefreshExpertTimingControls) == "function" then
+        self:RefreshExpertTimingControls()
+    end
+end
+
+function CDR:FormatExpertTimingValue(key)
+    local option = self:GetExpertTimingOption(key)
+    local value = option and CONST[key] or 0
+    return string.format("%." .. tostring(option and option.precision or 2) .. "fs", value)
+end
+
+function CDR:StartReadyScanTicker()
+    if self.ticker then
+        self.ticker:Cancel()
+        self.ticker = nil
+    end
+
+    if not C_Timer or not C_Timer.NewTicker or type(self.RequestCooldownScan) ~= "function" then
+        return
+    end
+
+    self.ticker = C_Timer.NewTicker(CONST.READY_SCAN_INTERVAL, function()
+        CDR:RequestCooldownScan(false, 0)
+    end)
+end
+
 function CDR:L(key)
     local locales = CooldownReminderLocales or {}
     local fallback = locales.enUS or {}
@@ -390,6 +604,7 @@ function CDR:InitializeDatabase()
     end
     self.db.reminder.layout = U.GetReminderLayoutOption(self.db.reminder.layout).id
     self.db.reminder.topMost = self.db.reminder.topMost == true
+    self:ApplyExpertTimingSettings(false)
 
     local seenNames = {}
     local normalizedSpells = {}

@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.6] - 2026-06-18
+
+Changes since `1.7.5`.
+
+### Added
+
+- Added an Expert Settings section for cooldown timing values with localized names, descriptions, warnings, and a reset-to-defaults action.
+
+### Changed
+
+- Redesigned the custom options window with a left category navigation and a wider game-style settings layout.
+- Refined the settings page spacing: language and layout dropdowns are stacked, full-width, and aligned with consistent label padding.
+- Increased the spell grid width to reduce unused space in the spell selection view.
+- Updated default cooldown timing values so ready reminders can react faster while still using confirmation windows.
+- Release automation now publishes only the matching version section from `CHANGELOG.md` to GitHub Releases and CurseForge.
+
+### Fixed
+
+- Expert timing changes now apply immediately, refresh reminder state, and restart the ready scan ticker when needed.
+- Top-row settings labels now keep their right-side padding instead of running into the panel border.
+
 ## [1.7.5] - 2026-06-17
 
 Changes since `1.7.4`.

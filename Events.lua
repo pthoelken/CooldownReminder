@@ -587,16 +587,13 @@ CDR:SetScript("OnEvent", function(self, event, ...)
             self:Initialize()
         end
     elseif event == "PLAYER_LOGIN" then
+        self.playerLoggedIn = true
+        self:ApplyExpertTimingSettings(false)
         self:InvalidateActionCooldownSnapshot(true)
         self:BuildPlayerSpellList()
         self:ScanCooldowns(true)
         self:PrintLoadMessage()
-        if self.ticker then
-            self.ticker:Cancel()
-        end
-        self.ticker = C_Timer.NewTicker(CONST.READY_SCAN_INTERVAL, function()
-            CDR:RequestCooldownScan(false, 0)
-        end)
+        self:StartReadyScanTicker()
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "ACTIONBAR_SLOT_CHANGED" then
         self:InvalidateActionCooldownSnapshot(true)
         self:BuildPlayerSpellList()

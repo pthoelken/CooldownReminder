@@ -44,6 +44,69 @@ local function BuildLayoutValues()
     return values
 end
 
+local function BuildExpertTimingAceArgs()
+    local args = {
+        warning = {
+            type = "description",
+            name = function()
+                return CDR:L("EXPERT_WARNING")
+            end,
+            fontSize = "medium",
+            width = "full",
+            order = 1,
+        },
+        reset = {
+            type = "execute",
+            name = function()
+                return CDR:L("RESET_TO_DEFAULTS")
+            end,
+            func = function()
+                CDR:ResetExpertTimingSettings()
+                CDR:RefreshConfig()
+            end,
+            order = 2,
+        },
+    }
+
+    for index, option in ipairs(CDR.EXPERT_TIMING_OPTIONS) do
+        local key = option.key
+        local labelKey = option.labelKey
+        local descKey = option.descKey
+        args[key] = {
+            type = "range",
+            name = function()
+                return CDR:L(labelKey)
+            end,
+            desc = function()
+                return CDR:L(descKey)
+            end,
+            min = option.min,
+            max = option.max,
+            step = option.step,
+            get = function()
+                return CDR.CONST[key]
+            end,
+            set = function(_, value)
+                CDR:SetExpertTimingValue(key, value)
+                CDR:RefreshConfig()
+            end,
+            width = "full",
+            order = 10 + index,
+        }
+    end
+
+    return args
+end
+
+local function CreateSectionDivider(parent, anchor)
+    local divider = parent:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
+    divider:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    divider:SetHeight(1)
+    U.SetTextureColor(divider, 0.43, 0.38, 0.28, 0.72)
+    return divider
+end
+
 function CDR:CreateTab(parent, id, text)
     local tabName = "CooldownReminderConfigFrameTab" .. id
     local tab = CreateFrame("Button", tabName, parent, BackdropTemplateMixin and "BackdropTemplate")
@@ -92,6 +155,72 @@ function CDR:CreateTab(parent, id, text)
     return tab
 end
 
+function CDR:CreateCategoryButton(parent, id, labelKey)
+    local button = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate")
+    button:SetID(id)
+    button:SetHeight(34)
+    button:SetPoint("LEFT", parent, "LEFT", 8, 0)
+    button:SetPoint("RIGHT", parent, "RIGHT", -8, 0)
+    button:RegisterForClicks("LeftButtonUp")
+    button.labelKey = labelKey
+    U.CreateBackdrop(button, 0.12)
+
+    local selectedFill = button:CreateTexture(nil, "ARTWORK")
+    selectedFill:SetPoint("TOPLEFT", 1, -1)
+    selectedFill:SetPoint("BOTTOMRIGHT", -1, 1)
+    U.SetTextureColor(selectedFill, 0.16, 0.13, 0.04, 0.76)
+    button.selectedFill = selectedFill
+
+    local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 14, 0)
+    label:SetPoint("RIGHT", -10, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    button.label = label
+
+    button:SetScript("OnClick", function(clickedButton)
+        CDR:SetActiveTab(clickedButton:GetID())
+    end)
+    button:SetScript("OnEnter", function(hoveredButton)
+        if hoveredButton.SetBackdropBorderColor then
+            hoveredButton:SetBackdropBorderColor(0.72, 0.58, 0.18, 0.95)
+        end
+        hoveredButton.label:SetTextColor(1, 0.86, 0.25)
+    end)
+    button:SetScript("OnLeave", function()
+        CDR:RefreshTabStyles()
+    end)
+
+    return button
+end
+
+function CDR:CreateCategoryNavigation(parent)
+    local nav = CreateFrame("Frame", nil, parent, BackdropTemplateMixin and "BackdropTemplate")
+    UI.categoryNav = nav
+    nav:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, -42)
+    nav:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 14, 14)
+    nav:SetWidth(242)
+    U.CreateBackdrop(nav, 0.72)
+
+    local header = nav:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    UI.categoryHeader = header
+    header:SetPoint("TOPLEFT", 22, -22)
+    header:SetPoint("RIGHT", -12, 0)
+    header:SetJustifyH("LEFT")
+    header:SetTextColor(1, 0.95, 0.82)
+
+    UI.categoryButtons = {
+        self:CreateCategoryButton(nav, 1, "TAB_SPELLS"),
+        self:CreateCategoryButton(nav, 2, "TAB_SETTINGS"),
+        self:CreateCategoryButton(nav, 3, "TAB_EXPERT"),
+    }
+
+    UI.categoryButtons[1]:SetPoint("TOP", header, "BOTTOM", 0, -20)
+    for index = 2, #UI.categoryButtons do
+        UI.categoryButtons[index]:SetPoint("TOP", UI.categoryButtons[index - 1], "BOTTOM", 0, -2)
+    end
+end
+
 function CDR:SetTabStyle(tab, selected)
     tab.selected = selected
     if selected then
@@ -116,7 +245,27 @@ function CDR:SetTabStyle(tab, selected)
 end
 
 function CDR:RefreshTabStyles()
-    if UI.spellsTab and UI.settingsTab then
+    if UI.categoryButtons then
+        for _, button in ipairs(UI.categoryButtons) do
+            local selected = self.activeTab == button:GetID()
+            button.selected = selected
+            if selected then
+                if button.SetBackdropColor then
+                    button:SetBackdropColor(0.08, 0.07, 0.035, 0.92)
+                    button:SetBackdropBorderColor(0.96, 0.73, 0.16, 1)
+                end
+                button.label:SetTextColor(1, 0.86, 0.24)
+                button.selectedFill:SetAlpha(1)
+            else
+                if button.SetBackdropColor then
+                    button:SetBackdropColor(0.015, 0.015, 0.014, 0.34)
+                    button:SetBackdropBorderColor(0.24, 0.22, 0.17, 0.78)
+                end
+                button.label:SetTextColor(0.72, 0.58, 0.2)
+                button.selectedFill:SetAlpha(0)
+            end
+        end
+    elseif UI.spellsTab and UI.settingsTab then
         self:SetTabStyle(UI.spellsTab, self.activeTab == 1)
         self:SetTabStyle(UI.settingsTab, self.activeTab == 2)
     end
@@ -126,20 +275,33 @@ function CDR:SetActiveTab(tabID)
     self.activeTab = tabID
     UI.spellsPanel:SetShown(tabID == 1)
     UI.settingsPanel:SetShown(tabID == 2)
+    if UI.expertPanel then
+        UI.expertPanel:SetShown(tabID == 3)
+    end
     self:RefreshTabStyles()
 end
 
 function CDR:CreateSpellsPanel(parent)
     local panel = CreateFrame("Frame", nil, parent)
     UI.spellsPanel = panel
-    panel:SetPoint("TOPLEFT", 28, -54)
-    panel:SetPoint("BOTTOMRIGHT", -28, 46)
+    panel:SetPoint("TOPLEFT", 284, -64)
+    panel:SetPoint("BOTTOMRIGHT", -28, 42)
     panel:SetScript("OnMouseUp", function()
         CDR:FinishWatchedDrag()
     end)
 
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    title:SetPoint("TOPLEFT", 0, 0)
+    title:SetPoint("RIGHT", 0, 0)
+    title:SetJustifyH("LEFT")
+    UI.spellsTitle = title
+
+    title:SetTextColor(1, 0.78, 0.12)
+
+    local divider = CreateSectionDivider(panel, title)
+
     local intro = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    intro:SetPoint("TOPLEFT", 0, 0)
+    intro:SetPoint("TOPLEFT", divider, "BOTTOMLEFT", 0, -12)
     intro:SetPoint("RIGHT", 0, 0)
     intro:SetJustifyH("LEFT")
     UI.spellsIntro = intro
@@ -361,25 +523,36 @@ end
 function CDR:CreateSettingsPanel(parent)
     local panel = CreateFrame("Frame", nil, parent)
     UI.settingsPanel = panel
-    panel:SetPoint("TOPLEFT", 34, -62)
-    panel:SetPoint("BOTTOMRIGHT", -34, 58)
+    panel:SetPoint("TOPLEFT", 284, -64)
+    panel:SetPoint("BOTTOMRIGHT", -28, 42)
 
-    local labelX = 28
-    local controlX = 164
-    local rightColumnX = 292
-    local leftCheckboxLabelWidth = 220
-    local rightCheckboxLabelWidth = 230
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    title:SetPoint("TOPLEFT", 0, 0)
+    title:SetPoint("RIGHT", 0, 0)
+    title:SetJustifyH("LEFT")
+    UI.settingsTitle = title
+
+    title:SetTextColor(1, 0.78, 0.12)
+
+    local divider = CreateSectionDivider(panel, title)
+
+    local labelX = 14
+    local controlX = 126
+    local rightColumnX = 278
+    local checkboxLabelRightInset = 16
+    local fullDropdownWidth = 414
+    local soundDropdownWidth = 292
 
     local monitoringCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
     UI.monitoringCheck = monitoringCheck
-    monitoringCheck:SetPoint("TOPLEFT", 22, -18)
+    monitoringCheck:SetPoint("TOPLEFT", 0, -48)
     monitoringCheck:SetScript("OnClick", function(button)
         CDR:SetMonitoringEnabled(button:GetChecked())
     end)
 
     local monitoringLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     monitoringLabel:SetPoint("LEFT", monitoringCheck, "RIGHT", 3, 0)
-    monitoringLabel:SetWidth(leftCheckboxLabelWidth)
+    monitoringLabel:SetPoint("RIGHT", panel, "LEFT", rightColumnX - 10, 0)
     monitoringLabel:SetJustifyH("LEFT")
     monitoringLabel:SetWordWrap(false)
     UI.monitoringLabel = monitoringLabel
@@ -394,7 +567,7 @@ function CDR:CreateSettingsPanel(parent)
 
     local titleLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     titleLabel:SetPoint("LEFT", titleCheck, "RIGHT", 3, 0)
-    titleLabel:SetWidth(leftCheckboxLabelWidth)
+    titleLabel:SetPoint("RIGHT", panel, "LEFT", rightColumnX - 10, 0)
     titleLabel:SetJustifyH("LEFT")
     titleLabel:SetWordWrap(false)
     UI.showTitleLabel = titleLabel
@@ -408,21 +581,21 @@ function CDR:CreateSettingsPanel(parent)
 
     local soundLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     soundLabel:SetPoint("LEFT", soundCheck, "RIGHT", 3, 0)
-    soundLabel:SetWidth(leftCheckboxLabelWidth)
+    soundLabel:SetPoint("RIGHT", panel, "LEFT", rightColumnX - 10, 0)
     soundLabel:SetJustifyH("LEFT")
     soundLabel:SetWordWrap(false)
     UI.soundLabel = soundLabel
 
     local topMostCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
     UI.topMostCheck = topMostCheck
-    topMostCheck:SetPoint("TOPLEFT", panel, "TOPLEFT", rightColumnX, -18)
+    topMostCheck:SetPoint("TOPLEFT", panel, "TOPLEFT", rightColumnX, -50)
     topMostCheck:SetScript("OnClick", function(button)
         CDR:SetReminderTopMost(button:GetChecked())
     end)
 
     local topMostLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     topMostLabel:SetPoint("LEFT", topMostCheck, "RIGHT", 3, 0)
-    topMostLabel:SetWidth(rightCheckboxLabelWidth)
+    topMostLabel:SetPoint("RIGHT", panel, "RIGHT", -checkboxLabelRightInset, 0)
     topMostLabel:SetJustifyH("LEFT")
     topMostLabel:SetWordWrap(false)
     UI.topMostLabel = topMostLabel
@@ -436,21 +609,21 @@ function CDR:CreateSettingsPanel(parent)
 
     local loadMessageLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     loadMessageLabel:SetPoint("LEFT", loadMessageCheck, "RIGHT", 3, 0)
-    loadMessageLabel:SetWidth(rightCheckboxLabelWidth)
+    loadMessageLabel:SetPoint("RIGHT", panel, "RIGHT", -checkboxLabelRightInset, 0)
     loadMessageLabel:SetJustifyH("LEFT")
     loadMessageLabel:SetWordWrap(false)
     UI.loadMessageLabel = loadMessageLabel
 
-    local soundDropdownLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    soundDropdownLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -146)
-    soundDropdownLabel:SetWidth(controlX - 12)
+    local soundDropdownLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    soundDropdownLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -184)
+    soundDropdownLabel:SetWidth(controlX - labelX - 8)
     soundDropdownLabel:SetJustifyH("LEFT")
     UI.soundDropdownLabel = soundDropdownLabel
 
     local soundDropdown = CreateFrame("Frame", "CooldownReminderSoundDropdown", panel, "UIDropDownMenuTemplate")
     UI.soundDropdown = soundDropdown
-    soundDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -142)
-    UIDropDownMenu_SetWidth(soundDropdown, 200)
+    soundDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -180)
+    UIDropDownMenu_SetWidth(soundDropdown, soundDropdownWidth)
     UIDropDownMenu_Initialize(soundDropdown, function(_, level)
         CDR:PopulateSoundDropdown(level)
     end)
@@ -458,43 +631,43 @@ function CDR:CreateSettingsPanel(parent)
     local soundTest = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     UI.soundTestButton = soundTest
     soundTest:SetSize(118, 24)
-    soundTest:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -28, -142)
+    soundTest:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -180)
     soundTest:SetScript("OnClick", function()
         CDR:PlaySelectedSound(true)
     end)
 
-    local languageLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    languageLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -190)
-    languageLabel:SetWidth(controlX - 12)
+    local languageLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    languageLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -238)
+    languageLabel:SetWidth(controlX - labelX - 8)
     languageLabel:SetJustifyH("LEFT")
     UI.languageLabel = languageLabel
 
     local languageDropdown = CreateFrame("Frame", "CooldownReminderLanguageDropdown", panel, "UIDropDownMenuTemplate")
     UI.languageDropdown = languageDropdown
-    languageDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -186)
-    UIDropDownMenu_SetWidth(languageDropdown, 200)
+    languageDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -234)
+    UIDropDownMenu_SetWidth(languageDropdown, fullDropdownWidth)
     UIDropDownMenu_Initialize(languageDropdown, function(_, level)
         CDR:PopulateLanguageDropdown(level)
     end)
 
-    local layoutLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    layoutLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -234)
-    layoutLabel:SetWidth(controlX - 12)
+    local layoutLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    layoutLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -286)
+    layoutLabel:SetWidth(controlX - labelX - 8)
     layoutLabel:SetJustifyH("LEFT")
     UI.layoutDropdownLabel = layoutLabel
 
     local layoutDropdown = CreateFrame("Frame", "CooldownReminderLayoutDropdown", panel, "UIDropDownMenuTemplate")
     UI.layoutDropdown = layoutDropdown
-    layoutDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -230)
-    UIDropDownMenu_SetWidth(layoutDropdown, 200)
+    layoutDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -282)
+    UIDropDownMenu_SetWidth(layoutDropdown, fullDropdownWidth)
     UIDropDownMenu_Initialize(layoutDropdown, function(_, level)
         CDR:PopulateLayoutDropdown(level)
     end)
 
     local slider = CreateFrame("Slider", "CooldownReminderScaleSlider", panel, "OptionsSliderTemplate")
     UI.scaleSlider = slider
-    slider:SetPoint("TOPLEFT", panel, "TOPLEFT", 54, -294)
-    slider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -54, -294)
+    slider:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -366)
+    slider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, -366)
     slider:SetMinMaxValues(0.6, 2)
     slider:SetValueStep(0.05)
     slider:SetObeyStepOnDrag(true)
@@ -504,14 +677,14 @@ function CDR:CreateSettingsPanel(parent)
 
     local actionBar = CreateFrame("Frame", nil, panel, BackdropTemplateMixin and "BackdropTemplate")
     UI.actionBar = actionBar
-    actionBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 22, 10)
-    actionBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 10)
-    actionBar:SetHeight(54)
-    U.CreateBackdrop(actionBar, 0.22)
+    actionBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
+    actionBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    actionBar:SetHeight(64)
+    U.CreateBackdrop(actionBar, 0.08)
 
     local reset = CreateFrame("Button", nil, actionBar, "UIPanelButtonTemplate")
     UI.resetButton = reset
-    reset:SetSize(174, 24)
+    reset:SetSize(178, 24)
     reset:SetPoint("LEFT", actionBar, "LEFT", 18, 0)
     reset:SetScript("OnClick", function()
         CDR:ResetReminderLayout()
@@ -519,24 +692,128 @@ function CDR:CreateSettingsPanel(parent)
 
     local test = CreateFrame("Button", nil, actionBar, "UIPanelButtonTemplate")
     UI.testButton = test
-    test:SetSize(146, 24)
-    test:SetPoint("LEFT", reset, "RIGHT", 12, 0)
+    test:SetSize(150, 24)
+    test:SetPoint("LEFT", reset, "RIGHT", 18, 0)
     test:SetScript("OnClick", function()
         CDR:TestReminder()
     end)
 
     local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("BOTTOMLEFT", actionBar, "TOPLEFT", 0, 10)
+    hint:SetPoint("BOTTOMLEFT", actionBar, "TOPLEFT", 0, 14)
     hint:SetPoint("RIGHT", actionBar, "RIGHT", 0, 0)
     hint:SetJustifyH("LEFT")
     UI.settingsHint = hint
+end
+
+function CDR:CreateExpertTimingRow(parent, option, index)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -102 - ((index - 1) * 46))
+    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    row:SetHeight(44)
+    row.option = option
+
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    label:SetWidth(198)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    row.label = label
+
+    local desc = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    desc:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -3)
+    desc:SetWidth(220)
+    desc:SetJustifyH("LEFT")
+    desc:SetWordWrap(true)
+    row.desc = desc
+
+    local valueText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    valueText:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -1)
+    valueText:SetWidth(52)
+    valueText:SetJustifyH("RIGHT")
+    row.valueText = valueText
+
+    local slider = CreateFrame("Slider", "CooldownReminderExpertTimingSlider" .. option.key, row, "OptionsSliderTemplate")
+    slider:SetPoint("TOPLEFT", row, "TOPLEFT", 242, -4)
+    slider:SetPoint("TOPRIGHT", valueText, "TOPLEFT", -14, -4)
+    slider:SetMinMaxValues(option.min, option.max)
+    slider:SetValueStep(option.step)
+    slider:SetObeyStepOnDrag(true)
+    slider.option = option
+    slider:SetScript("OnValueChanged", function(control, value)
+        if UI.expertTimingRefreshLocked then
+            return
+        end
+
+        local normalized = CDR:NormalizeExpertTimingValue(control.option, value)
+        if math.abs(normalized - value) > 0.0001 then
+            control:SetValue(normalized)
+            return
+        end
+
+        CDR:SetExpertTimingValue(control.option.key, normalized)
+        CDR:RefreshExpertTimingControls()
+    end)
+    row.slider = slider
+
+    local sliderName = slider:GetName()
+    if _G[sliderName .. "Low"] then
+        _G[sliderName .. "Low"]:SetText("")
+    end
+    if _G[sliderName .. "High"] then
+        _G[sliderName .. "High"]:SetText("")
+    end
+    if _G[sliderName .. "Text"] then
+        _G[sliderName .. "Text"]:SetText("")
+    end
+
+    return row
+end
+
+function CDR:CreateExpertPanel(parent)
+    local panel = CreateFrame("Frame", nil, parent)
+    UI.expertPanel = panel
+    panel:SetPoint("TOPLEFT", 284, -64)
+    panel:SetPoint("BOTTOMRIGHT", -28, 42)
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    title:SetPoint("TOPLEFT", 0, 0)
+    title:SetPoint("RIGHT", 0, 0)
+    title:SetJustifyH("LEFT")
+    UI.expertTitle = title
+
+    title:SetTextColor(1, 0.78, 0.12)
+
+    local divider = CreateSectionDivider(panel, title)
+
+    local warning = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    warning:SetPoint("TOPLEFT", divider, "BOTTOMLEFT", 0, -14)
+    warning:SetPoint("RIGHT", -118, 0)
+    warning:SetJustifyH("LEFT")
+    warning:SetWordWrap(true)
+    warning:SetTextColor(1, 0.82, 0.26)
+    UI.expertWarning = warning
+
+    local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    UI.expertResetButton = reset
+    reset:SetSize(112, 24)
+    reset:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -42)
+    reset:SetScript("OnClick", function()
+        CDR:ResetExpertTimingSettings()
+        CDR:RefreshConfig()
+    end)
+
+    UI.expertTimingRows = {}
+    for index, option in ipairs(CDR.EXPERT_TIMING_OPTIONS) do
+        local row = self:CreateExpertTimingRow(panel, option, index)
+        UI.expertTimingRows[option.key] = row
+    end
 end
 
 function CDR:CreateConfigWindow()
     local frame = CreateFrame("Frame", "CooldownReminderConfigFrame", UIParent, "BasicFrameTemplateWithInset")
     UI.config = frame
 
-    frame:SetSize(640, 540)
+    frame:SetSize(870, 610)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -556,6 +833,13 @@ function CDR:CreateConfigWindow()
     end)
     frame:Hide()
 
+    local contentBg = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate")
+    UI.configContentBg = contentBg
+    contentBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -32)
+    contentBg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
+    U.CreateBackdrop(contentBg, 0.68)
+    contentBg:SetFrameLevel(frame:GetFrameLevel())
+
     if frame.TitleText then
         frame.TitleText:ClearAllPoints()
         frame.TitleText:SetPoint("TOP", frame, "TOP", 0, -6)
@@ -569,16 +853,10 @@ function CDR:CreateConfigWindow()
         UI.configTitle = title
     end
 
-    local tab1 = self:CreateTab(frame, 1, "")
-    UI.spellsTab = tab1
-    tab1:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 28, 4)
-
-    local tab2 = self:CreateTab(frame, 2, "")
-    UI.settingsTab = tab2
-    tab2:SetPoint("LEFT", tab1, "RIGHT", 2, 0)
-
+    self:CreateCategoryNavigation(frame)
     self:CreateSpellsPanel(frame)
     self:CreateSettingsPanel(frame)
+    self:CreateExpertPanel(frame)
     self:SetActiveTab(1)
     self:RefreshConfigTexts()
     self:RefreshConfig()
@@ -835,6 +1113,15 @@ function CDR:GetAceOptionsTable()
                     },
                 },
             },
+            expert = {
+                type = "group",
+                name = function()
+                    return CDR:L("TAB_EXPERT")
+                end,
+                inline = true,
+                order = 40,
+                args = BuildExpertTimingAceArgs(),
+            },
         },
     }
 end
@@ -939,9 +1226,19 @@ function CDR:RefreshConfigTexts()
         UI.configTitle:SetText("CooldownReminder")
     end
 
-    UI.spellsTab:SetText(L("TAB_SPELLS"))
-    UI.settingsTab:SetText(L("TAB_SETTINGS"))
+    if UI.categoryHeader then
+        UI.categoryHeader:SetText(L("NAV_HEADER"))
+    end
+    if UI.categoryButtons then
+        for _, button in ipairs(UI.categoryButtons) do
+            button.label:SetText(L(button.labelKey))
+        end
+    elseif UI.spellsTab and UI.settingsTab then
+        UI.spellsTab:SetText(L("TAB_SPELLS"))
+        UI.settingsTab:SetText(L("TAB_SETTINGS"))
+    end
     self:RefreshTabStyles()
+    UI.spellsTitle:SetText(L("TAB_SPELLS"))
     UI.spellsIntro:SetText(L("SPELLS_INTRO"))
     UI.searchLabel:SetText(L("SEARCH"))
     UI.refreshButton:SetText(L("REFRESH"))
@@ -950,6 +1247,7 @@ function CDR:RefreshConfigTexts()
     UI.watchedTitle:SetText(L("WATCHED_SPELLS"))
     UI.watchedHint:SetText(L("WATCHED_HINT"))
     UI.emptyWatched:SetText(L("EMPTY_WATCHED"))
+    UI.settingsTitle:SetText(L("TAB_SETTINGS"))
     UI.monitoringLabel:SetText(L("ENABLE_MONITORING"))
     UI.showTitleLabel:SetText(L("SHOW_TITLE"))
     UI.soundLabel:SetText(L("ENABLE_SOUND"))
@@ -962,6 +1260,17 @@ function CDR:RefreshConfigTexts()
     UI.resetButton:SetText(L("RESET_POSITION"))
     UI.testButton:SetText(L("TEST_REMINDER"))
     UI.settingsHint:SetText(L("SETTINGS_HINT"))
+    UI.expertTitle:SetText(L("TAB_EXPERT"))
+    UI.expertWarning:SetText(L("EXPERT_WARNING"))
+    UI.expertResetButton:SetText(L("RESET_TO_DEFAULTS"))
+
+    for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
+        local row = UI.expertTimingRows and UI.expertTimingRows[option.key]
+        if row then
+            row.label:SetText(L(option.labelKey))
+            row.desc:SetText(L(option.descKey))
+        end
+    end
 
     local sliderName = UI.scaleSlider:GetName()
     if _G[sliderName .. "Low"] then
@@ -987,6 +1296,7 @@ function CDR:RefreshConfigTexts()
     if UI.layoutDropdown then
         UIDropDownMenu_SetText(UI.layoutDropdown, U.GetReminderLayoutLabel(self.db.reminder.layout))
     end
+    self:RefreshExpertTimingControls()
     if _G.CooldownReminderBlizzardSettingsPanel and _G.CooldownReminderBlizzardSettingsPanel.refresh then
         _G.CooldownReminderBlizzardSettingsPanel.refresh(_G.CooldownReminderBlizzardSettingsPanel)
     end
@@ -1153,6 +1463,23 @@ function CDR:PopulateLayoutDropdown(level)
     end
 end
 
+function CDR:RefreshExpertTimingControls()
+    if not UI.expertTimingRows then
+        return
+    end
+
+    UI.expertTimingRefreshLocked = true
+    for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
+        local row = UI.expertTimingRows[option.key]
+        if row then
+            local value = self:NormalizeExpertTimingValue(option, CONST[option.key])
+            row.slider:SetValue(value)
+            row.valueText:SetText(self:FormatExpertTimingValue(option.key))
+        end
+    end
+    UI.expertTimingRefreshLocked = false
+end
+
 function CDR:RefreshConfig()
     if not UI.config then
         return
@@ -1221,6 +1548,7 @@ function CDR:RefreshConfig()
     if UI.layoutDropdown then
         UIDropDownMenu_SetText(UI.layoutDropdown, U.GetReminderLayoutLabel(self.db.reminder.layout))
     end
+    self:RefreshExpertTimingControls()
 end
 
 function CDR:ToggleConfig()

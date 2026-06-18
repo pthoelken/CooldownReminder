@@ -190,14 +190,54 @@ jobs:
               output.write(f"ids={ids}\n")
           PY
 
-      - name: Read changelog
+      - name: Extract release changelog
         id: changelog
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
         run: |
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"].strip()
+          changelog_path = Path("CHANGELOG.md")
+          output_path = Path("dist/release-changelog.md")
+          lines = changelog_path.read_text(encoding="utf-8").splitlines()
+          heading_pattern = re.compile(
+              r"^##\s+(?:\[(?:v)?{version}\]|(?:v)?{version})(?:\s|$)".format(
+                  version=re.escape(version)
+              )
+          )
+
+          start = None
+          for index, line in enumerate(lines):
+              if heading_pattern.match(line):
+                  start = index
+                  break
+
+          if start is None:
+              raise SystemExit(f"CHANGELOG.md does not contain a release section for version {version}.")
+
+          end = len(lines)
+          for index in range(start + 1, len(lines)):
+              if lines[index].startswith("## "):
+                  end = index
+                  break
+
+          release_changelog = "\n".join(lines[start:end]).strip()
+          if not release_changelog:
+              raise SystemExit(f"Release changelog for version {version} is empty.")
+
+          output_path.parent.mkdir(parents=True, exist_ok=True)
+          output_path.write_text(release_changelog + "\n", encoding="utf-8")
+          PY
+
           delimiter="CURSEFORGE_CHANGELOG_$(date +%s%N)"
           {
             echo "body<<${delimiter}"
-            cat CHANGELOG.md
+            cat dist/release-changelog.md
             echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
 
@@ -219,6 +259,6 @@ jobs:
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: CooldownReminder ${{ steps.meta.outputs.version }}
-          body_path: CHANGELOG.md
+          body_path: dist/release-changelog.md
           files: dist/CooldownReminder-${{ steps.meta.outputs.version }}.zip
           make_latest: true
