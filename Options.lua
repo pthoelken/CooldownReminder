@@ -44,6 +44,14 @@ local function BuildLayoutValues()
     return values
 end
 
+local function BuildModeValues()
+    local values = {}
+    for _, option in ipairs(CDR.REMINDER_MODE_OPTIONS) do
+        values[option.id] = U.GetReminderModeLabel(option.id)
+    end
+    return values
+end
+
 local function BuildExpertTimingAceArgs()
     local args = {
         warning = {
@@ -213,12 +221,40 @@ function CDR:CreateCategoryNavigation(parent)
         self:CreateCategoryButton(nav, 1, "TAB_SPELLS"),
         self:CreateCategoryButton(nav, 2, "TAB_SETTINGS"),
         self:CreateCategoryButton(nav, 3, "TAB_EXPERT"),
+        self:CreateCategoryButton(nav, 4, "TAB_ABOUT"),
     }
 
     UI.categoryButtons[1]:SetPoint("TOP", header, "BOTTOM", 0, -20)
     for index = 2, #UI.categoryButtons do
         UI.categoryButtons[index]:SetPoint("TOP", UI.categoryButtons[index - 1], "BOTTOM", 0, -2)
     end
+
+    local slider = CreateFrame("Slider", "CooldownReminderScaleSlider", nav, "OptionsSliderTemplate")
+    UI.scaleSlider = slider
+    slider:SetPoint("BOTTOMLEFT", nav, "BOTTOMLEFT", 22, 126)
+    slider:SetPoint("BOTTOMRIGHT", nav, "BOTTOMRIGHT", -22, 126)
+    slider:SetMinMaxValues(0.6, 2)
+    slider:SetValueStep(0.05)
+    slider:SetObeyStepOnDrag(true)
+    slider:SetScript("OnValueChanged", function(_, value)
+        CDR:SetReminderScale(value)
+    end)
+
+    local reset = CreateFrame("Button", nil, nav, "UIPanelButtonTemplate")
+    UI.resetButton = reset
+    reset:SetSize(196, 24)
+    reset:SetPoint("BOTTOM", nav, "BOTTOM", 0, 68)
+    reset:SetScript("OnClick", function()
+        CDR:ResetReminderLayout()
+    end)
+
+    local test = CreateFrame("Button", nil, nav, "UIPanelButtonTemplate")
+    UI.testButton = test
+    test:SetSize(196, 24)
+    test:SetPoint("TOP", reset, "BOTTOM", 0, -16)
+    test:SetScript("OnClick", function()
+        CDR:TestReminder()
+    end)
 end
 
 function CDR:SetTabStyle(tab, selected)
@@ -278,6 +314,9 @@ function CDR:SetActiveTab(tabID)
     if UI.expertPanel then
         UI.expertPanel:SetShown(tabID == 3)
     end
+    if UI.aboutPanel then
+        UI.aboutPanel:SetShown(tabID == 4)
+    end
     self:RefreshTabStyles()
 end
 
@@ -307,13 +346,16 @@ function CDR:CreateSpellsPanel(parent)
     UI.spellsIntro = intro
 
     local searchLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -18)
+    searchLabel:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -16)
+    searchLabel:SetSize(58, 24)
+    searchLabel:SetJustifyH("LEFT")
+    searchLabel:SetJustifyV("MIDDLE")
     UI.searchLabel = searchLabel
 
     local search = CreateFrame("EditBox", "CooldownReminderSearchBox", panel, "InputBoxTemplate")
     UI.searchBox = search
     search:SetHeight(24)
-    search:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 12, -4)
+    search:SetPoint("LEFT", searchLabel, "RIGHT", 12, 0)
     search:SetAutoFocus(false)
     search:SetScript("OnTextChanged", function()
         if UI.spellGridScrollFrame and FauxScrollFrame_SetOffset then
@@ -332,7 +374,7 @@ function CDR:CreateSpellsPanel(parent)
     UI.refreshButton = refresh
     refresh:SetSize(116, 24)
     refresh:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -22, -34)
-    search:SetPoint("TOPRIGHT", refresh, "TOPLEFT", -16, 0)
+    search:SetPoint("RIGHT", refresh, "LEFT", -16, 0)
     refresh:SetScript("OnClick", function()
         CDR:BuildPlayerSpellList()
         CDR:RefreshConfig()
@@ -650,59 +692,41 @@ function CDR:CreateSettingsPanel(parent)
         CDR:PopulateLanguageDropdown(level)
     end)
 
+    local modeLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    modeLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -286)
+    modeLabel:SetWidth(controlX - labelX - 8)
+    modeLabel:SetJustifyH("LEFT")
+    UI.modeDropdownLabel = modeLabel
+
+    local modeDropdown = CreateFrame("Frame", "CooldownReminderModeDropdown", panel, "UIDropDownMenuTemplate")
+    UI.modeDropdown = modeDropdown
+    modeDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -282)
+    UIDropDownMenu_SetWidth(modeDropdown, fullDropdownWidth)
+    UIDropDownMenu_Initialize(modeDropdown, function(_, level)
+        CDR:PopulateModeDropdown(level)
+    end)
+
+    local modeDescription = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    modeDescription:SetPoint("TOPLEFT", modeDropdown, "BOTTOMLEFT", 22, -2)
+    modeDescription:SetPoint("RIGHT", panel, "RIGHT", -8, 0)
+    modeDescription:SetJustifyH("LEFT")
+    modeDescription:SetWordWrap(true)
+    UI.modeDescription = modeDescription
+
     local layoutLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    layoutLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -286)
+    layoutLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -376)
     layoutLabel:SetWidth(controlX - labelX - 8)
     layoutLabel:SetJustifyH("LEFT")
     UI.layoutDropdownLabel = layoutLabel
 
     local layoutDropdown = CreateFrame("Frame", "CooldownReminderLayoutDropdown", panel, "UIDropDownMenuTemplate")
     UI.layoutDropdown = layoutDropdown
-    layoutDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -282)
+    layoutDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", controlX - 22, -372)
     UIDropDownMenu_SetWidth(layoutDropdown, fullDropdownWidth)
     UIDropDownMenu_Initialize(layoutDropdown, function(_, level)
         CDR:PopulateLayoutDropdown(level)
     end)
 
-    local slider = CreateFrame("Slider", "CooldownReminderScaleSlider", panel, "OptionsSliderTemplate")
-    UI.scaleSlider = slider
-    slider:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -366)
-    slider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, -366)
-    slider:SetMinMaxValues(0.6, 2)
-    slider:SetValueStep(0.05)
-    slider:SetObeyStepOnDrag(true)
-    slider:SetScript("OnValueChanged", function(_, value)
-        CDR:SetReminderScale(value)
-    end)
-
-    local actionBar = CreateFrame("Frame", nil, panel, BackdropTemplateMixin and "BackdropTemplate")
-    UI.actionBar = actionBar
-    actionBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
-    actionBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
-    actionBar:SetHeight(64)
-    U.CreateBackdrop(actionBar, 0.08)
-
-    local reset = CreateFrame("Button", nil, actionBar, "UIPanelButtonTemplate")
-    UI.resetButton = reset
-    reset:SetSize(178, 24)
-    reset:SetPoint("LEFT", actionBar, "LEFT", 18, 0)
-    reset:SetScript("OnClick", function()
-        CDR:ResetReminderLayout()
-    end)
-
-    local test = CreateFrame("Button", nil, actionBar, "UIPanelButtonTemplate")
-    UI.testButton = test
-    test:SetSize(150, 24)
-    test:SetPoint("LEFT", reset, "RIGHT", 18, 0)
-    test:SetScript("OnClick", function()
-        CDR:TestReminder()
-    end)
-
-    local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("BOTTOMLEFT", actionBar, "TOPLEFT", 0, 14)
-    hint:SetPoint("RIGHT", actionBar, "RIGHT", 0, 0)
-    hint:SetJustifyH("LEFT")
-    UI.settingsHint = hint
 end
 
 function CDR:CreateExpertTimingRow(parent, option, index)
@@ -809,6 +833,114 @@ function CDR:CreateExpertPanel(parent)
     end
 end
 
+function CDR:CreateAboutInfoRow(parent, anchor, labelKey, valueProvider)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
+    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    row:SetHeight(26)
+
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 0, 0)
+    label:SetWidth(128)
+    label:SetJustifyH("LEFT")
+    row.label = label
+    row.labelKey = labelKey
+
+    local value = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    value:SetPoint("LEFT", label, "RIGHT", 14, 0)
+    value:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    value:SetJustifyH("LEFT")
+    value:SetWordWrap(false)
+    row.value = value
+    row.valueProvider = valueProvider
+
+    return row
+end
+
+function CDR:CreateAboutLinkRow(parent, anchor, labelKey, url)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -14)
+    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    row:SetHeight(30)
+
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", 0, 0)
+    label:SetWidth(128)
+    label:SetJustifyH("LEFT")
+    row.label = label
+    row.labelKey = labelKey
+
+    local editBox = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+    editBox:SetPoint("LEFT", label, "RIGHT", 14, 0)
+    editBox:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    editBox:SetHeight(24)
+    editBox:SetAutoFocus(false)
+    editBox:SetText(url)
+    editBox:SetCursorPosition(0)
+    editBox:SetScript("OnEditFocusGained", function(box)
+        box:HighlightText()
+    end)
+    editBox:SetScript("OnMouseUp", function(box)
+        box:SetFocus()
+        box:HighlightText()
+    end)
+    editBox:SetScript("OnEscapePressed", function(box)
+        box:ClearFocus()
+    end)
+    row.editBox = editBox
+
+    return row
+end
+
+function CDR:CreateAboutPanel(parent)
+    local panel = CreateFrame("Frame", nil, parent)
+    UI.aboutPanel = panel
+    panel:SetPoint("TOPLEFT", 284, -64)
+    panel:SetPoint("BOTTOMRIGHT", -28, 42)
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    title:SetPoint("TOPLEFT", 0, 0)
+    title:SetPoint("RIGHT", 0, 0)
+    title:SetJustifyH("LEFT")
+    title:SetTextColor(1, 0.78, 0.12)
+    UI.aboutTitle = title
+
+    local divider = CreateSectionDivider(panel, title)
+
+    local description = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    description:SetPoint("TOPLEFT", divider, "BOTTOMLEFT", 0, -16)
+    description:SetPoint("RIGHT", panel, "RIGHT", -6, 0)
+    description:SetJustifyH("LEFT")
+    description:SetWordWrap(true)
+    description:SetTextColor(0.92, 0.88, 0.78)
+    UI.aboutDescription = description
+
+    local versionRow = self:CreateAboutInfoRow(panel, description, "ABOUT_VERSION", function()
+        return CDR.VERSION or "dev"
+    end)
+    UI.aboutVersionRow = versionRow
+
+    local curseRow = self:CreateAboutLinkRow(panel, versionRow, "ABOUT_CURSEFORGE", self.CURSEFORGE_URL)
+    UI.aboutCurseForgeRow = curseRow
+
+    local githubRow = self:CreateAboutLinkRow(panel, curseRow, "ABOUT_GITHUB", self.GITHUB_URL)
+    UI.aboutGitHubRow = githubRow
+
+    local commandsTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    commandsTitle:SetPoint("TOPLEFT", githubRow, "BOTTOMLEFT", 0, -24)
+    commandsTitle:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    commandsTitle:SetJustifyH("LEFT")
+    UI.aboutCommandsTitle = commandsTitle
+
+    local commands = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    commands:SetPoint("TOPLEFT", commandsTitle, "BOTTOMLEFT", 0, -8)
+    commands:SetPoint("RIGHT", panel, "RIGHT", -6, 0)
+    commands:SetJustifyH("LEFT")
+    commands:SetWordWrap(true)
+    commands:SetTextColor(0.78, 0.76, 0.68)
+    UI.aboutCommands = commands
+end
+
 function CDR:CreateConfigWindow()
     local frame = CreateFrame("Frame", "CooldownReminderConfigFrame", UIParent, "BasicFrameTemplateWithInset")
     UI.config = frame
@@ -857,6 +989,7 @@ function CDR:CreateConfigWindow()
     self:CreateSpellsPanel(frame)
     self:CreateSettingsPanel(frame)
     self:CreateExpertPanel(frame)
+    self:CreateAboutPanel(frame)
     self:SetActiveTab(1)
     self:RefreshConfigTexts()
     self:RefreshConfig()
@@ -1016,6 +1149,26 @@ function CDR:GetAceOptionsTable()
                         width = "double",
                         order = 3,
                     },
+                    mode = {
+                        type = "select",
+                        name = function()
+                            return CDR:L("REMINDER_MODE")
+                        end,
+                        desc = function()
+                            return CDR:L("REMINDER_MODE_DESC")
+                        end,
+                        values = BuildModeValues,
+                        get = function()
+                            return CDR.db.reminder.mode or "popup"
+                        end,
+                        set = function(_, value)
+                            CDR:SetReminderMode(value)
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        style = "dropdown",
+                        width = "double",
+                        order = 4,
+                    },
                     scale = {
                         type = "range",
                         name = function()
@@ -1032,7 +1185,7 @@ function CDR:GetAceOptionsTable()
                             CDR:NotifyAceOptionsChanged()
                         end,
                         width = "full",
-                        order = 4,
+                        order = 5,
                     },
                     reset = {
                         type = "execute",
@@ -1044,7 +1197,7 @@ function CDR:GetAceOptionsTable()
                             CDR:RefreshConfig()
                             CDR:NotifyAceOptionsChanged()
                         end,
-                        order = 5,
+                        order = 6,
                     },
                     test = {
                         type = "execute",
@@ -1054,7 +1207,7 @@ function CDR:GetAceOptionsTable()
                         func = function()
                             CDR:TestReminder()
                         end,
-                        order = 6,
+                        order = 7,
                     },
                 },
             },
@@ -1256,13 +1409,38 @@ function CDR:RefreshConfigTexts()
     UI.soundDropdownLabel:SetText(L("SOUND"))
     UI.soundTestButton:SetText(L("TEST_SOUND"))
     UI.languageLabel:SetText(L("LANGUAGE"))
+    UI.modeDropdownLabel:SetText(L("REMINDER_MODE"))
+    UI.modeDescription:SetText(L("REMINDER_MODE_DESC"))
     UI.layoutDropdownLabel:SetText(L("REMINDER_LAYOUT"))
     UI.resetButton:SetText(L("RESET_POSITION"))
     UI.testButton:SetText(L("TEST_REMINDER"))
-    UI.settingsHint:SetText(L("SETTINGS_HINT"))
+    if UI.settingsHint then
+        UI.settingsHint:SetText(L("SETTINGS_HINT"))
+    end
     UI.expertTitle:SetText(L("TAB_EXPERT"))
     UI.expertWarning:SetText(L("EXPERT_WARNING"))
     UI.expertResetButton:SetText(L("RESET_TO_DEFAULTS"))
+    UI.aboutTitle:SetText(L("TAB_ABOUT"))
+    UI.aboutDescription:SetText(L("ABOUT_DESCRIPTION"))
+    UI.aboutCommandsTitle:SetText(L("ABOUT_COMMANDS"))
+    UI.aboutCommands:SetText("/cdr\n/cdr toggle\n/cdr test\n/cdr reset")
+
+    for _, row in ipairs({ UI.aboutVersionRow, UI.aboutCurseForgeRow, UI.aboutGitHubRow }) do
+        if row and row.labelKey then
+            row.label:SetText(L(row.labelKey))
+        end
+        if row and row.valueProvider then
+            row.value:SetText(row.valueProvider())
+        end
+    end
+    if UI.aboutCurseForgeRow then
+        UI.aboutCurseForgeRow.editBox:SetText(self.CURSEFORGE_URL)
+        UI.aboutCurseForgeRow.editBox:SetCursorPosition(0)
+    end
+    if UI.aboutGitHubRow then
+        UI.aboutGitHubRow.editBox:SetText(self.GITHUB_URL)
+        UI.aboutGitHubRow.editBox:SetCursorPosition(0)
+    end
 
     for _, option in ipairs(self.EXPERT_TIMING_OPTIONS) do
         local row = UI.expertTimingRows and UI.expertTimingRows[option.key]
@@ -1274,10 +1452,10 @@ function CDR:RefreshConfigTexts()
 
     local sliderName = UI.scaleSlider:GetName()
     if _G[sliderName .. "Low"] then
-        _G[sliderName .. "Low"]:SetText("60%")
+        _G[sliderName .. "Low"]:SetText("")
     end
     if _G[sliderName .. "High"] then
-        _G[sliderName .. "High"]:SetText("200%")
+        _G[sliderName .. "High"]:SetText("")
     end
     if _G[sliderName .. "Text"] then
         _G[sliderName .. "Text"]:SetText(L("REMINDER_SCALE"))
@@ -1292,6 +1470,9 @@ function CDR:RefreshConfigTexts()
     end
     if UI.languageDropdown then
         UIDropDownMenu_SetText(UI.languageDropdown, U.GetLanguageLabel(self.db.language))
+    end
+    if UI.modeDropdown then
+        UIDropDownMenu_SetText(UI.modeDropdown, U.GetReminderModeLabel(self.db.reminder.mode))
     end
     if UI.layoutDropdown then
         UIDropDownMenu_SetText(UI.layoutDropdown, U.GetReminderLayoutLabel(self.db.reminder.layout))
@@ -1446,6 +1627,23 @@ function CDR:PopulateLanguageDropdown(level)
     end
 end
 
+function CDR:PopulateModeDropdown(level)
+    if level ~= 1 then
+        return
+    end
+
+    for _, option in ipairs(CDR.REMINDER_MODE_OPTIONS) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = U.GetReminderModeLabel(option.id)
+        info.checked = self.db.reminder.mode == option.id
+        info.arg1 = option.id
+        info.func = function(_, arg1)
+            CDR:SetReminderMode(arg1)
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
 function CDR:PopulateLayoutDropdown(level)
     if level ~= 1 then
         return
@@ -1544,6 +1742,9 @@ function CDR:RefreshConfig()
     end
     if UI.languageDropdown then
         UIDropDownMenu_SetText(UI.languageDropdown, U.GetLanguageLabel(self.db.language))
+    end
+    if UI.modeDropdown then
+        UIDropDownMenu_SetText(UI.modeDropdown, U.GetReminderModeLabel(self.db.reminder.mode))
     end
     if UI.layoutDropdown then
         UIDropDownMenu_SetText(UI.layoutDropdown, U.GetReminderLayoutLabel(self.db.reminder.layout))

@@ -90,6 +90,14 @@ local function AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
     return trackedCharges, readyAt
 end
 
+function CDR:GetStateScheduledReadyAt(state)
+    if not state then
+        return 0
+    end
+
+    return math.max(state.cooldownBlockUntil or 0, state.pendingReadyAt or 0)
+end
+
 function U.GetSpellInfoCompat(spellID)
     if C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(spellID)
@@ -1034,12 +1042,6 @@ local function AddActionSnapshotRecord(index, key, record)
     table.insert(records, record)
 end
 
-local function AddActionSnapshotTextureRecords(index, texture, record)
-    for _, key in ipairs(GetTextureLookupKeys(texture)) do
-        AddActionSnapshotRecord(index, key, record)
-    end
-end
-
 function CDR:InvalidateActionCooldownSnapshot(refreshFrames)
     self.actionCooldownSnapshot = nil
     if refreshFrames then
@@ -1305,7 +1307,6 @@ function CDR:GetActionCooldownSnapshot()
         bySlot = {},
         bySpellID = {},
         byNameKey = {},
-        byTexture = {},
     }
 
     for slot = CONST.ACTION_SLOT_FIRST, CONST.ACTION_SLOT_LAST do
@@ -1322,13 +1323,16 @@ function CDR:GetActionCooldownSnapshot()
                 texture = texture,
                 onCooldown = actionOnCooldown,
                 remaining = remaining,
+                actionOnCooldown = actionOnCooldown,
+                actionRemaining = remaining,
+                frameOnCooldown = false,
+                frameRemaining = 0,
                 hasUsableCharge = actionHasUsableCharge,
             }
 
             snapshot.bySlot[slot] = record
             AddActionSnapshotRecord(snapshot.bySpellID, actionSpellID, record)
             AddActionSnapshotRecord(snapshot.byNameKey, nameKey, record)
-            AddActionSnapshotTextureRecords(snapshot.byTexture, texture, record)
         end
     end
 
@@ -1365,19 +1369,26 @@ function CDR:GetActionCooldownSnapshot()
                     texture = texture,
                     onCooldown = onCooldown,
                     remaining = remaining,
+                    actionOnCooldown = actionOnCooldown,
+                    actionRemaining = actionRemaining,
+                    frameOnCooldown = frameOnCooldown,
+                    frameRemaining = frameRemaining,
                     hasUsableCharge = actionHasUsableCharge,
                 }
 
                 if slot and snapshot.bySlot[slot] and onCooldown and remaining > (snapshot.bySlot[slot].remaining or 0) then
                     snapshot.bySlot[slot].onCooldown = true
                     snapshot.bySlot[slot].remaining = remaining
+                    snapshot.bySlot[slot].actionOnCooldown = snapshot.bySlot[slot].actionOnCooldown or actionOnCooldown
+                    snapshot.bySlot[slot].actionRemaining = math.max(snapshot.bySlot[slot].actionRemaining or 0, actionRemaining or 0)
+                    snapshot.bySlot[slot].frameOnCooldown = snapshot.bySlot[slot].frameOnCooldown or frameOnCooldown
+                    snapshot.bySlot[slot].frameRemaining = math.max(snapshot.bySlot[slot].frameRemaining or 0, frameRemaining or 0)
                 elseif slot and not snapshot.bySlot[slot] then
                     snapshot.bySlot[slot] = record
                 end
 
                 AddActionSnapshotRecord(snapshot.bySpellID, actionSpellID, record)
                 AddActionSnapshotRecord(snapshot.byNameKey, nameKey, record)
-                AddActionSnapshotTextureRecords(snapshot.byTexture, texture, record)
             end
         end
     end
@@ -1486,76 +1497,19 @@ function CDR:GetWatchedCooldownStatus(spellID)
     local state = self.cooldownState and self.cooldownState[spellID]
     local now = GetTime()
     local saved = self.db.spells[spellID]
-    local savedNameKey = saved and (saved.nameKey or U.NormalizeName(saved.name))
-    local candidateLookup = U.BuildLookup(candidates)
-    local snapshot = self:GetActionCooldownSnapshot()
-    local checkedActionRecords = {}
-    local actionOnCooldown = false
-    local actionChargeReadyConfirmed = false
-    local function checkActionRecord(record)
-        local recordKey = record and (record.recordKey or record.slot or tostring(record))
-        if not record or checkedActionRecords[recordKey] then
-            return
-        end
-
-        checkedActionRecords[recordKey] = true
-        if record.hasUsableCharge then
-            actionChargeReadyConfirmed = true
-        end
-        if record.onCooldown then
-            actionOnCooldown = true
-            onCooldown = true
-            if record.remaining > longestRemaining then
-                longestRemaining = record.remaining
-            end
-        end
-    end
-
-    for _, slot in ipairs(saved and saved.actionSlots or {}) do
-        local record = snapshot.bySlot[slot]
-        if record then
-            checkActionRecord(record)
-        elseif self:IsWatchedActionSlot(spellID, slot, candidateLookup) then
-            local actionOnCooldownNow, remaining, actionHasUsableCharge = U.GetActionCooldownStatus(slot)
-            checkActionRecord({
-                slot = slot,
-                onCooldown = actionOnCooldownNow,
-                remaining = remaining,
-                hasUsableCharge = actionHasUsableCharge,
-            })
-        end
-    end
-
-    for _, candidateID in ipairs(candidates) do
-        for _, record in ipairs(snapshot.bySpellID[candidateID] or {}) do
-            checkActionRecord(record)
-        end
-    end
-
-    for _, record in ipairs(snapshot.byNameKey[savedNameKey] or {}) do
-        checkActionRecord(record)
-    end
-
-    local savedIcon = saved and saved.icon
-    for _, key in ipairs(GetTextureLookupKeys(savedIcon)) do
-        for _, record in ipairs(snapshot.byTexture[key] or {}) do
-            checkActionRecord(record)
-        end
-    end
-
-    -- During heavy combat WoW can briefly report empty action cooldowns; only
-    -- explicit usable charges are stable enough to bypass fallback blocks.
-    local actionReadyConfirmed = actionChargeReadyConfirmed and not actionOnCooldown
     local maxCharges, rechargeDuration, currentCharges, rechargeRemaining = self:GetWatchedChargeProfile(spellID)
-    if state and maxCharges > 1 then
-        local trackedCharges, readyAt = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
+    if maxCharges > 1 then
+        local trackedCharges, readyAt
+        if state then
+            trackedCharges, readyAt = AdvanceTrackedCharges(state, maxCharges, rechargeDuration, now)
+        end
         if currentCharges then
             currentCharges = U.Clamp(currentCharges, 0, maxCharges)
-            if trackedCharges and readyAt and readyAt > now and currentCharges > trackedCharges then
+            if state and trackedCharges and readyAt and readyAt > now and currentCharges > trackedCharges then
                 currentCharges = trackedCharges
             elseif trackedCharges and currentCharges < trackedCharges and rechargeRemaining <= 0 then
                 currentCharges = trackedCharges
-            else
+            elseif state then
                 state.trackedCharges = currentCharges
                 state.trackedMaxCharges = maxCharges
                 state.trackedChargeDuration = rechargeDuration
@@ -1565,34 +1519,25 @@ function CDR:GetWatchedCooldownStatus(spellID)
             end
 
             if currentCharges > 0 then
-                if currentCharges >= maxCharges then
+                if state and currentCharges >= maxCharges then
                     state.trackedChargeReadyAt = nil
                 end
                 return false, 0, true
             end
             if rechargeRemaining > 0 then
-                if actionReadyConfirmed then
-                    return false, 0, true
-                end
                 return true, math.max(longestRemaining, rechargeRemaining), false
             end
-            if rechargeDuration > CONST.GCD_IGNORE_SECONDS and not state.trackedChargeReadyAt then
+            if state and rechargeDuration > CONST.GCD_IGNORE_SECONDS and not state.trackedChargeReadyAt then
                 state.trackedChargeReadyAt = now + rechargeDuration
             end
-            if state.trackedChargeReadyAt and state.trackedChargeReadyAt > now then
-                if actionReadyConfirmed then
-                    return false, 0, true
-                end
+            if state and state.trackedChargeReadyAt and state.trackedChargeReadyAt > now then
                 return true, math.max(longestRemaining, state.trackedChargeReadyAt - now), false
             end
         elseif trackedCharges then
             if trackedCharges > 0 then
-                return false, 0, actionReadyConfirmed
+                return false, 0, true
             end
             if readyAt and readyAt > now then
-                if actionReadyConfirmed then
-                    return false, 0, true
-                end
                 return true, math.max(longestRemaining, readyAt - now), false
             end
         end
@@ -1612,6 +1557,89 @@ function CDR:GetWatchedCooldownStatus(spellID)
         return true, longestRemaining, false
     end
 
+    local scheduledReadyAt = self:GetStateScheduledReadyAt(state)
+    local scheduledRemaining = 0
+    if scheduledReadyAt > now then
+        scheduledRemaining = math.max(0, scheduledReadyAt - now)
+    elseif scheduledReadyAt > 0 then
+        return false, 0, false
+    end
+
+    local savedNameKey = saved and (saved.nameKey or U.NormalizeName(saved.name))
+    local candidateLookup = U.BuildLookup(candidates)
+    local snapshot = self:GetActionCooldownSnapshot()
+    local checkedActionRecords = {}
+    local actionOnCooldown = false
+    local actionChargeReadyConfirmed = false
+    local function checkActionRecord(record, matchStrength)
+        local recordKey = record and (record.recordKey or record.slot or tostring(record))
+        if not record or checkedActionRecords[recordKey] then
+            return
+        end
+
+        checkedActionRecords[recordKey] = true
+        if record.hasUsableCharge and matchStrength ~= "texture" then
+            actionChargeReadyConfirmed = true
+        end
+        if record.onCooldown and matchStrength ~= "texture" then
+            local remaining = record.remaining or 0
+            if scheduledRemaining > 0 then
+                if record.actionOnCooldown then
+                    remaining = record.actionRemaining or remaining
+                elseif record.frameOnCooldown then
+                    remaining = scheduledRemaining
+                end
+            end
+            actionOnCooldown = true
+            onCooldown = true
+            if remaining > longestRemaining then
+                longestRemaining = remaining
+            end
+        end
+    end
+
+    for _, slot in ipairs(saved and saved.actionSlots or {}) do
+        local record = snapshot.bySlot[slot]
+        if record then
+            checkActionRecord(record, "slot")
+        elseif self:IsWatchedActionSlot(spellID, slot, candidateLookup) then
+            local actionOnCooldownNow, remaining, actionHasUsableCharge = U.GetActionCooldownStatus(slot)
+            checkActionRecord({
+                slot = slot,
+                onCooldown = actionOnCooldownNow,
+                remaining = remaining,
+                actionOnCooldown = actionOnCooldownNow,
+                actionRemaining = remaining,
+                frameOnCooldown = false,
+                frameRemaining = 0,
+                hasUsableCharge = actionHasUsableCharge,
+            }, "slot")
+        end
+    end
+
+    for _, candidateID in ipairs(candidates) do
+        for _, record in ipairs(snapshot.bySpellID[candidateID] or {}) do
+            checkActionRecord(record, "spell")
+        end
+    end
+
+    if savedNameKey then
+        for _, record in ipairs(snapshot.byNameKey[savedNameKey] or {}) do
+            checkActionRecord(record, "name")
+        end
+    end
+
+    if onCooldown then
+        return true, math.max(longestRemaining, scheduledRemaining), false
+    end
+
+    if scheduledRemaining > 0 then
+        return true, scheduledRemaining, false
+    end
+
+    -- During heavy combat WoW can briefly report empty action cooldowns; only
+    -- explicit usable charges are stable enough to bypass fallback blocks.
+    local actionReadyConfirmed = actionChargeReadyConfirmed and not actionOnCooldown
     return false, 0, actionReadyConfirmed
 end
 

@@ -24,6 +24,8 @@ CooldownReminder = CDR
 
 CDR.ADDON_NAME = ADDON_NAME
 CDR.VERSION = GetAddonVersion()
+CDR.GITHUB_URL = "https://github.com/pthoelken/CooldownReminder"
+CDR.CURSEFORGE_URL = "https://www.curseforge.com/wow/addons/cooldown-reminder"
 CDR.UI = {}
 CDR.Utils = {}
 
@@ -37,6 +39,7 @@ local CONST = {
     POST_CAST_SETTLE_SECONDS = 0.6,
     ACTION_SNAPSHOT_MAX_AGE_SECONDS = 0.03,
     GCD_IGNORE_SECONDS = 2,
+    READY_PULSE_SECONDS = 1.6,
     SPELL_GRID_COLUMNS = 14,
     SPELL_GRID_ROWS = 3,
     SPELL_GRID_ICON_SIZE = 32,
@@ -178,6 +181,11 @@ CDR.REMINDER_LAYOUT_OPTIONS = {
     { id = "horizontal" },
 }
 
+CDR.REMINDER_MODE_OPTIONS = {
+    { id = "popup" },
+    { id = "time" },
+}
+
 CDR.COOLDOWN_SPELL_SUPPLEMENTS = {
     { id = 5394, cooldown = 30 }, -- Healing Stream Totem
     { id = 51485, cooldown = 30 }, -- Earthgrab Totem
@@ -215,6 +223,7 @@ CDR.defaults = {
         scale = 1,
         showTitle = true,
         layout = "vertical",
+        mode = "popup",
         topMost = false,
     },
     expert = {
@@ -384,9 +393,25 @@ function U.CreateAnimatedBorder(frame)
     frame.animatedBorder = borders
     frame:SetScript("OnUpdate", function(row, elapsed)
         row.pulseTime = (row.pulseTime or 0) + elapsed
-        local alpha = 0.35 + ((math.sin(row.pulseTime * 4.2) + 1) * 0.28)
+        local now = GetTime and GetTime() or 0
+        local readyPulseActive = row.readyPulseUntil and row.readyPulseUntil > now
+        local alpha
+        local r, g, b = 1, 0.78, 0.24
+        if readyPulseActive then
+            alpha = 0.68 + ((math.sin(row.pulseTime * 8.5) + 1) * 0.16)
+            r, g, b = 0.42, 1, 0.48
+        elseif row.cooldownActive then
+            alpha = 0.16 + ((math.sin(row.pulseTime * 3.2) + 1) * 0.08)
+            r, g, b = 0.42, 0.42, 0.42
+        else
+            alpha = 0.35 + ((math.sin(row.pulseTime * 4.2) + 1) * 0.28)
+        end
         for _, texture in ipairs(row.animatedBorder or {}) do
-            texture:SetAlpha(alpha)
+            if texture.SetColorTexture then
+                texture:SetColorTexture(r, g, b, alpha)
+            else
+                texture:SetVertexColor(r, g, b, alpha)
+            end
         end
     end)
 end
@@ -407,6 +432,15 @@ function U.GetReminderLayoutOption(layoutID)
         end
     end
     return CDR.REMINDER_LAYOUT_OPTIONS[1]
+end
+
+function U.GetReminderModeOption(modeID)
+    for _, option in ipairs(CDR.REMINDER_MODE_OPTIONS) do
+        if option.id == modeID then
+            return option
+        end
+    end
+    return CDR.REMINDER_MODE_OPTIONS[1]
 end
 
 function U.GetLanguageLabel(languageID)
@@ -437,6 +471,11 @@ end
 function U.GetReminderLayoutLabel(layoutID)
     local option = U.GetReminderLayoutOption(layoutID)
     return CDR:L("LAYOUT_" .. string.upper(option.id))
+end
+
+function U.GetReminderModeLabel(modeID)
+    local option = U.GetReminderModeOption(modeID)
+    return CDR:L("MODE_" .. string.upper(option.id))
 end
 
 function CDR:GetExpertTimingOption(key)
@@ -603,6 +642,7 @@ function CDR:InitializeDatabase()
         self.db.reminder.y = self.defaults.reminder.y
     end
     self.db.reminder.layout = U.GetReminderLayoutOption(self.db.reminder.layout).id
+    self.db.reminder.mode = U.GetReminderModeOption(self.db.reminder.mode).id
     self.db.reminder.topMost = self.db.reminder.topMost == true
     self:ApplyExpertTimingSettings(false)
 

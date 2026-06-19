@@ -138,17 +138,24 @@ function CDR:MarkSpellReady(spellID, state)
     state.cooldownBlockUntil = nil
     self:ClearReadyConfirmation(state)
 
-    return self:MarkReady(spellID)
+    local marked = self:MarkReady(spellID)
+    if marked then
+        state.readyPulseUntil = GetTime() + CONST.READY_PULSE_SECONDS
+    end
+    return marked
 end
 
 function CDR:ShouldDeferReady(spellID, state, now, actionReadyConfirmed)
     if actionReadyConfirmed and (state.seenCooldown or state.pendingReadyAt or state.cooldownBlockUntil) then
-        if self:StartReadyConfirmation(spellID, state, now, CONST.ACTION_READY_CONFIRM_SECONDS) then
-            return true
-        end
         state.castSettleUntil = nil
         state.pendingReadyAt = nil
         state.cooldownBlockUntil = nil
+        state.seenCooldown = false
+        return false
+    end
+
+    local scheduledReadyAt = self:GetStateScheduledReadyAt(state)
+    if scheduledReadyAt > 0 and scheduledReadyAt <= now then
         return false
     end
 
@@ -517,6 +524,8 @@ function CDR:TestReminder()
     end
 
     self.readySpells[firstSpellID] = true
+    self.cooldownState[firstSpellID] = self.cooldownState[firstSpellID] or {}
+    self.cooldownState[firstSpellID].readyPulseUntil = GetTime() + CONST.READY_PULSE_SECONDS
     self.testReadySpell = {
         id = firstSpellID,
         name = testName or U.GetSpellInfoCompat(firstSpellID) or ("Spell " .. firstSpellID),

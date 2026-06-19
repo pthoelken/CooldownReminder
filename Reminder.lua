@@ -55,6 +55,22 @@ function CDR:SetReminderLayout(layout)
     end
 end
 
+function CDR:SetReminderMode(mode)
+    mode = U.GetReminderModeOption(mode).id
+    if self.db.reminder.mode == mode then
+        return
+    end
+
+    self.db.reminder.mode = mode
+    self:RefreshReminderAlerts()
+    if UI.modeDropdown then
+        UIDropDownMenu_SetText(UI.modeDropdown, U.GetReminderModeLabel(mode))
+    end
+    if UI.config and UI.config:IsShown() then
+        self:RefreshConfig()
+    end
+end
+
 function CDR:ApplyReminderStrata()
     if not UI.reminder or not self.db or not self.db.reminder then
         return
@@ -130,7 +146,43 @@ function CDR:CreateReminderRow(index)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     row.icon = icon
 
-    local charges = row:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    local cooldown = CreateFrame("Cooldown", nil, row, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(icon)
+    if cooldown.SetDrawEdge then
+        cooldown:SetDrawEdge(true)
+    end
+    if cooldown.SetDrawBling then
+        cooldown:SetDrawBling(false)
+    end
+    if cooldown.SetDrawSwipe then
+        cooldown:SetDrawSwipe(true)
+    end
+    if cooldown.SetSwipeColor then
+        cooldown:SetSwipeColor(0, 0, 0, 0.86)
+    end
+    if cooldown.SetEdgeScale then
+        cooldown:SetEdgeScale(0.85)
+    end
+    if cooldown.SetHideCountdownNumbers then
+        cooldown:SetHideCountdownNumbers(false)
+    end
+    cooldown:Hide()
+    row.cooldown = cooldown
+
+    local cooldownShade = row:CreateTexture(nil, "ARTWORK")
+    cooldownShade:SetAllPoints(icon)
+    U.SetTextureColor(cooldownShade, 0, 0, 0, 0.34)
+    cooldownShade:Hide()
+    row.cooldownShade = cooldownShade
+
+    local iconOverlay = CreateFrame("Frame", nil, row)
+    iconOverlay:SetAllPoints(icon)
+    if iconOverlay.SetFrameLevel and cooldown.GetFrameLevel then
+        iconOverlay:SetFrameLevel((cooldown:GetFrameLevel() or row:GetFrameLevel() or 0) + 1)
+    end
+    row.iconOverlay = iconOverlay
+
+    local charges = iconOverlay:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
     charges:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 0)
     charges:SetJustifyH("RIGHT")
     charges:SetTextColor(1, 1, 1, 1)
@@ -235,6 +287,7 @@ function CDR:GetReadyList()
                             icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
                             charges = charges,
                             maxCharges = maxCharges,
+                            pulseUntil = state and state.readyPulseUntil or nil,
                         })
                     end
                 end
@@ -244,6 +297,7 @@ function CDR:GetReadyList()
                 id = spellID,
                 name = self.testReadySpell.name,
                 icon = self.testReadySpell.icon,
+                pulseUntil = GetTime() + CONST.READY_PULSE_SECONDS,
             })
         else
             self.readySpells[spellID] = nil
@@ -265,6 +319,68 @@ function CDR:GetReadyList()
     return ready
 end
 
+function CDR:GetTimeReminderList()
+    local spells = {}
+    local now = GetTime()
+    self:NormalizeWatchedOrder()
+
+    for _, spellID in ipairs(self.db.order or {}) do
+        local saved = self.db.spells[spellID]
+        if saved then
+            local isTestSpell = self.testReadySpell and self.testReadySpell.id == spellID
+            local onCooldown, remaining, actionReadyConfirmed = self:GetWatchedCooldownStatus(spellID)
+            local state = self.cooldownState and self.cooldownState[spellID]
+
+            if isTestSpell then
+                onCooldown = false
+                remaining = 0
+            elseif onCooldown then
+                self.readySpells[spellID] = nil
+            elseif state and self:ShouldDeferReady(spellID, state, now, actionReadyConfirmed) then
+                local blockedUntil = math.max(state.castSettleUntil or 0, state.cooldownBlockUntil or 0, state.pendingReadyAt or 0)
+                onCooldown = true
+                remaining = math.max(0, blockedUntil - now)
+                self.readySpells[spellID] = nil
+            end
+
+            local charges, maxCharges = self:GetWatchedChargeDisplay(spellID)
+            local cooldownDuration = math.max(remaining or 0, tonumber(saved.baseCooldown or 0) or 0)
+            table.insert(spells, {
+                id = spellID,
+                name = saved.name or ("Spell " .. spellID),
+                icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
+                charges = charges,
+                maxCharges = maxCharges,
+                onCooldown = onCooldown == true,
+                remaining = remaining or 0,
+                cooldownDuration = cooldownDuration,
+                pulseUntil = state and state.readyPulseUntil or nil,
+            })
+        end
+    end
+
+    if #spells == 0 and self.testReadySpell then
+        table.insert(spells, {
+            id = self.testReadySpell.id,
+            name = self.testReadySpell.name,
+            icon = self.testReadySpell.icon,
+            onCooldown = false,
+            remaining = 0,
+            pulseUntil = now + CONST.READY_PULSE_SECONDS,
+        })
+    end
+
+    return spells
+end
+
+function CDR:GetReminderDisplayList()
+    if self.db and self.db.reminder and self.db.reminder.mode == "time" then
+        return self:GetTimeReminderList()
+    end
+
+    return self:GetReadyList()
+end
+
 function CDR:RefreshReminderAlerts()
     if not UI.reminder then
         return
@@ -280,8 +396,8 @@ function CDR:RefreshReminderAlerts()
     end
 
     self:ApplyReminderStrata()
-    local ready = self:GetReadyList()
-    local count = #ready
+    local spells = self:GetReminderDisplayList()
+    local count = #spells
     local showTitle = self.db.reminder.showTitle
     local layout = self.db.reminder.layout or "vertical"
     local rowWidth = showTitle and U.Clamp(self.db.reminder.width or 260, 150, CONST.ALERT_MAX_WIDTH) or (CONST.ALERT_ICON_SIZE + 8)
@@ -305,9 +421,11 @@ function CDR:RefreshReminderAlerts()
     end
     self.db.reminder.height = totalHeight
 
-    for index, spell in ipairs(ready) do
+    for index, spell in ipairs(spells) do
         local row = UI.alertRows[index] or self:CreateReminderRow(index)
         row.spellID = spell.id
+        row.cooldownActive = spell.onCooldown == true
+        row.readyPulseUntil = spell.pulseUntil
         row:SetSize(rowWidth, rowHeight)
         row:ClearAllPoints()
         if index == 1 then
@@ -318,6 +436,28 @@ function CDR:RefreshReminderAlerts()
             row:SetPoint("TOPLEFT", UI.alertRows[index - 1], "BOTTOMLEFT", 0, -CONST.ALERT_ROW_SPACING)
         end
         row.icon:SetTexture(spell.icon)
+        if row.icon.SetDesaturated then
+            row.icon:SetDesaturated(spell.onCooldown == true)
+        end
+        if spell.onCooldown then
+            row.icon:SetVertexColor(0.5, 0.5, 0.5, 1)
+            row.cooldownShade:Show()
+            if spell.remaining and spell.remaining > 0 then
+                if row.cooldown.SetCooldown and spell.cooldownDuration and spell.cooldownDuration > 0 then
+                    local duration = math.max(spell.cooldownDuration, spell.remaining)
+                    row.cooldown:SetCooldown(GetTime() - math.max(0, duration - spell.remaining), duration)
+                    row.cooldown:Show()
+                else
+                    row.cooldown:Hide()
+                end
+            else
+                row.cooldown:Hide()
+            end
+        else
+            row.icon:SetVertexColor(1, 1, 1, 1)
+            row.cooldownShade:Hide()
+            row.cooldown:Hide()
+        end
         if spell.maxCharges and spell.maxCharges > 1 and spell.charges and spell.charges > 0 then
             row.charges:SetText(tostring(spell.charges))
             row.charges:Show()
@@ -326,14 +466,33 @@ function CDR:RefreshReminderAlerts()
             row.charges:Hide()
         end
         row.title:SetText(spell.name)
+        if spell.onCooldown then
+            row.title:SetTextColor(0.58, 0.58, 0.58)
+        else
+            row.title:SetTextColor(1, 0.82, 0.24)
+        end
         row.title:SetShown(showTitle)
         row:Show()
     end
 
     for index = count + 1, #UI.alertRows do
         UI.alertRows[index].spellID = nil
+        UI.alertRows[index].cooldownActive = false
+        UI.alertRows[index].readyPulseUntil = nil
         if UI.alertRows[index].charges then
             UI.alertRows[index].charges:Hide()
+        end
+        if UI.alertRows[index].icon then
+            if UI.alertRows[index].icon.SetDesaturated then
+                UI.alertRows[index].icon:SetDesaturated(false)
+            end
+            UI.alertRows[index].icon:SetVertexColor(1, 1, 1, 1)
+        end
+        if UI.alertRows[index].cooldown then
+            UI.alertRows[index].cooldown:Hide()
+        end
+        if UI.alertRows[index].cooldownShade then
+            UI.alertRows[index].cooldownShade:Hide()
         end
         UI.alertRows[index]:Hide()
     end
