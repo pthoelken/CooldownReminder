@@ -23,6 +23,7 @@ CooldownReminderLocales.enUS = {
     READY = "ready",
     ENABLE_MONITORING = "Enable cooldown monitoring",
     SHOW_TITLE = "Show spell title in reminder",
+    SHOW_COOLDOWN_DURATION = "Show base cooldown on spell icon",
     ENABLE_SOUND = "Play sound",
     REMINDER_TOPMOST = "Show reminders above other windows",
     SHOW_LOAD_MESSAGE = "Show load message in chat",

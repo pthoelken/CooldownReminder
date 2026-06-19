@@ -23,6 +23,7 @@ CooldownReminderLocales.itIT = {
     READY = "pronto",
     ENABLE_MONITORING = "Attiva il monitoraggio dei tempi di recupero",
     SHOW_TITLE = "Mostra il nome dell'incantesimo nel promemoria",
+    SHOW_COOLDOWN_DURATION = "Mostra il tempo di recupero base sull'icona",
     ENABLE_SOUND = "Riproduci suono",
     REMINDER_TOPMOST = "Mostra i promemoria sopra le altre finestre",
     SHOW_LOAD_MESSAGE = "Mostra il messaggio di caricamento in chat",

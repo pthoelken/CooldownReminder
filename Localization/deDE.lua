@@ -23,6 +23,7 @@ CooldownReminderLocales.deDE = {
     READY = "bereit",
     ENABLE_MONITORING = "Cooldown-Überwachung aktivieren",
     SHOW_TITLE = "Zaubertitel im Reminder anzeigen",
+    SHOW_COOLDOWN_DURATION = "Basis-Cooldown im Zaubericon anzeigen",
     ENABLE_SOUND = "Sound abspielen",
     REMINDER_TOPMOST = "Reminder über anderen Fenstern anzeigen",
     SHOW_LOAD_MESSAGE = "Lade-Meldung im Chat anzeigen",

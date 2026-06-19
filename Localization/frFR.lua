@@ -23,6 +23,7 @@ CooldownReminderLocales.frFR = {
     READY = "prêt",
     ENABLE_MONITORING = "Activer la surveillance des recharges",
     SHOW_TITLE = "Afficher le nom du sort dans le rappel",
+    SHOW_COOLDOWN_DURATION = "Afficher la recharge de base sur l'icône du sort",
     ENABLE_SOUND = "Jouer un son",
     REMINDER_TOPMOST = "Afficher les rappels au-dessus des autres fenêtres",
     SHOW_LOAD_MESSAGE = "Afficher le message de chargement dans le chat",

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.8] - 2026-06-19
+
+Changes since `1.7.7`.
+
+### Changed
+
+- Time Reminder is now the default reminder mode for new installations.
+- Base cooldown and charge count overlays now use the same WoW cooldown countdown font style as the native cooldown timer.
+- Reduced the base cooldown and charge count overlay sizes slightly so they sit cleaner on spell icons.
+
+### Fixed
+
+- Base cooldown overlays now hide while a spell is actively on cooldown, leaving the native cooldown countdown unobstructed.
+
 ## [1.7.7] - 2026-06-19
 
 Changes since `1.7.6`.
@@ -8,6 +22,7 @@ Changes since `1.7.6`.
 
 - Added a reminder mode option with `PopUp Reminder` and `Time Reminder`.
 - Added localized reminder mode labels and descriptions for all supported locales.
+- Added an optional base cooldown badge in the top-left corner of reminder spell icons.
 - Added an `About` section below Expert Settings with addon description, version, CurseForge link, GitHub link, and slash commands.
 
 ### Changed
@@ -15,6 +30,7 @@ Changes since `1.7.6`.
 - Cooldown readiness now follows the spell/charge state and the scheduled cooldown end before using action bar data as a fallback.
 - Live icon matching is no longer used as an authoritative combat cooldown source, reducing false suppression from stale or shared action button icons.
 - Time Reminder keeps watched spells visible while they are on cooldown, dims their icons, shows a native Blizzard cooldown swipe/countdown, and displays the remaining time.
+- Reminder charge counts now explicitly use Blizzard's number font for a more action-bar-like look.
 - Ready transitions now store a short visual pulse window so Time Reminder can highlight newly ready spells while still using the normal ready sound.
 - Moved reminder scaling plus reset and test buttons into the left navigation area to match the updated settings layout.
 - Increased cooldown swipe contrast and enabled the cooldown edge so the radial timer is easier to see on dimmed spell icons.

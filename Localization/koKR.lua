@@ -23,6 +23,7 @@ CooldownReminderLocales.koKR = {
     READY = "준비됨",
     ENABLE_MONITORING = "재사용 대기시간 감시 사용",
     SHOW_TITLE = "알림에 주문 이름 표시",
+    SHOW_COOLDOWN_DURATION = "주문 아이콘에 기본 재사용 대기시간 표시",
     ENABLE_SOUND = "소리 재생",
     REMINDER_TOPMOST = "알림을 다른 창 위에 표시",
     SHOW_LOAD_MESSAGE = "대화창에 로드 메시지 표시",

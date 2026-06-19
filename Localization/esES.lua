@@ -23,6 +23,7 @@ CooldownReminderLocales.esES = {
     READY = "listo",
     ENABLE_MONITORING = "Activar vigilancia de reutilizaciones",
     SHOW_TITLE = "Mostrar el nombre del hechizo en el aviso",
+    SHOW_COOLDOWN_DURATION = "Mostrar reutilización base en el icono del hechizo",
     ENABLE_SOUND = "Reproducir sonido",
     REMINDER_TOPMOST = "Mostrar avisos sobre otras ventanas",
     SHOW_LOAD_MESSAGE = "Mostrar mensaje de carga en el chat",

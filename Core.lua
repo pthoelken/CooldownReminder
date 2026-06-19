@@ -222,8 +222,9 @@ CDR.defaults = {
         height = CONST.ALERT_ROW_HEIGHT,
         scale = 1,
         showTitle = true,
+        showCooldownDuration = true,
         layout = "vertical",
-        mode = "popup",
+        mode = "time",
         topMost = false,
     },
     expert = {
@@ -342,6 +343,30 @@ function U.SecondsText(seconds)
         return string.format("%dm %02ds", math.floor(seconds / 60), seconds % 60)
     end
     return string.format("%ds", seconds)
+end
+
+function U.CompactCooldownText(seconds)
+    seconds = math.max(0, U.Round(seconds or 0))
+    if seconds <= CONST.GCD_IGNORE_SECONDS then
+        return ""
+    end
+    if seconds >= 3600 then
+        local hours = math.floor(seconds / 3600)
+        local minutes = math.floor((seconds % 3600) / 60)
+        if minutes > 0 and hours < 10 then
+            return string.format("%dh%02d", hours, minutes)
+        end
+        return string.format("%dh", hours)
+    end
+    if seconds >= 60 then
+        local minutes = math.floor(seconds / 60)
+        local remainingSeconds = seconds % 60
+        if remainingSeconds == 0 or minutes >= 10 then
+            return string.format("%dm", minutes)
+        end
+        return string.format("%d:%02d", minutes, remainingSeconds)
+    end
+    return tostring(seconds)
 end
 
 function U.CreateBackdrop(frame, alpha)

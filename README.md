@@ -5,7 +5,7 @@
 <h1 align="center">CooldownReminder</h1>
 
 <p align="center">
-  A compact World of Warcraft addon that reminds you when selected character spells are ready again.
+  A compact World of Warcraft addon that tracks selected character cooldowns and reminds you when spells are ready again.
 </p>
 
 <p align="center">
@@ -29,11 +29,11 @@
 
 ## What It Does
 
-CooldownReminder watches the cooldowns you care about and shows a minimal movable reminder when a spell is ready. The reminder can show only the spell icon, or the icon plus spell name, and can be arranged vertically or horizontally.
+CooldownReminder watches the cooldowns you care about and shows a minimal movable reminder when a spell is ready. By default, Time mode keeps watched spells visible and counts down active cooldowns. The reminder can show only the spell icon, or the icon plus spell name, and can be arranged vertically or horizontally. It can also show the spell's base cooldown on the icon while the spell is ready, then hide that number while the active cooldown countdown is running.
 
 The addon is built for character-specific cooldown tracking: it reads your current spellbook, talents, and action bars, then only offers learned spells that actually have a meaningful cooldown or charges.
 
-- CurseForce Link: [Cooldown Reminder](https://www.curseforge.com/wow/addons/cooldown-reminder)
+- CurseForge Link: [Cooldown Reminder](https://www.curseforge.com/wow/addons/cooldown-reminder)
 
 ## Features
 
@@ -42,9 +42,10 @@ The addon is built for character-specific cooldown tracking: it reads your curre
 - Search filtering when the spell grid gets busy.
 - Ready reminders shown immediately after adding a ready spell.
 - Persistent watched-spell ordering by drag and drop.
+- Time mode by default for persistent cooldown countdowns, with optional PopUp mode for ready-only reminders.
 - Vertical or horizontal reminder layouts.
 - Move and scale the reminder stack directly on screen.
-- Optional spell titles, sounds, load message, and top-most behavior.
+- Optional spell titles, base cooldown numbers, sounds, load message, and top-most behavior.
 - Monitoring can be enabled or disabled from settings or slash commands.
 - Localized UI for `enUS`, `ptBR`, `esES`, `esMX`, `frFR`, `deDE`, `itIT`, `ruRU`, `zhCN`, `koKR`, and `zhTW`.
 

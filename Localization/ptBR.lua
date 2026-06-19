@@ -23,6 +23,7 @@ CooldownReminderLocales.ptBR = {
     READY = "pronto",
     ENABLE_MONITORING = "Ativar monitoramento de recargas",
     SHOW_TITLE = "Mostrar título do feitiço no lembrete",
+    SHOW_COOLDOWN_DURATION = "Mostrar recarga base no ícone do feitiço",
     ENABLE_SOUND = "Tocar som",
     REMINDER_TOPMOST = "Mostrar lembretes acima de outras janelas",
     SHOW_LOAD_MESSAGE = "Mostrar mensagem de carregamento no chat",

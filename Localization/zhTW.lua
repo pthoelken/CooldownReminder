@@ -23,6 +23,7 @@ CooldownReminderLocales.zhTW = {
     READY = "就緒",
     ENABLE_MONITORING = "啟用冷卻監控",
     SHOW_TITLE = "在提醒中顯示法術名稱",
+    SHOW_COOLDOWN_DURATION = "在法術圖示上顯示基礎冷卻",
     ENABLE_SOUND = "播放音效",
     REMINDER_TOPMOST = "提醒顯示在其他視窗上方",
     SHOW_LOAD_MESSAGE = "在聊天中顯示載入訊息",

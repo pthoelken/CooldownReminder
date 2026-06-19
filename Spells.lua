@@ -48,6 +48,16 @@ local function NumberOrZero(value)
     return NumberOrNil(value) or 0
 end
 
+local function GetSpellBaseOrRechargeCooldown(spellID)
+    local cooldown = NumberOrZero(U.GetSpellBaseCooldownCompat(spellID))
+    local _, maxCharges, _, chargeCooldown = U.GetSpellChargesCompat(spellID)
+    chargeCooldown = NumberOrZero(chargeCooldown)
+    if IsGreaterThan(maxCharges, 1) and chargeCooldown > cooldown then
+        cooldown = chargeCooldown
+    end
+    return cooldown
+end
+
 local function IsCooldownEnabled(value)
     local ok, result = pcall(function()
         return value ~= 0 and value ~= false
@@ -740,7 +750,7 @@ function CDR:ReconcileWatchedSpellData()
 
             local baseCooldown = math.max(tonumber(saved.baseCooldown or 0) or 0, tonumber(playerSpell.forcedCooldown or 0) or 0)
             for _, aliasID in ipairs(aliases) do
-                baseCooldown = math.max(baseCooldown, U.GetSpellBaseCooldownCompat(aliasID))
+                baseCooldown = math.max(baseCooldown, GetSpellBaseOrRechargeCooldown(aliasID))
             end
 
             saved.aliases = aliases
@@ -939,7 +949,7 @@ function CDR:AddWatchedSpell(spellID)
 
     local baseCooldown = tonumber(spell.forcedCooldown or 0) or 0
     for _, aliasID in ipairs(spell.aliases or {}) do
-        baseCooldown = math.max(baseCooldown, U.GetSpellBaseCooldownCompat(aliasID))
+        baseCooldown = math.max(baseCooldown, GetSpellBaseOrRechargeCooldown(aliasID))
     end
 
     self.db.spells[spell.id] = {
@@ -1687,7 +1697,7 @@ function CDR:GetWatchedBaseCooldown(spellID)
     end
 
     for _, candidateID in ipairs(self:GetWatchedCandidates(spellID)) do
-        local baseCooldown = U.GetSpellBaseCooldownCompat(candidateID)
+        local baseCooldown = GetSpellBaseOrRechargeCooldown(candidateID)
         if baseCooldown and baseCooldown > longestCooldown then
             longestCooldown = baseCooldown
         end
@@ -1699,6 +1709,12 @@ function CDR:GetWatchedBaseCooldown(spellID)
             local _, duration = GetActionCooldown(slot)
             if IsGreaterThan(duration, longestCooldown) then
                 longestCooldown = duration
+            end
+        end
+        if self:IsWatchedActionSlot(spellID, slot, candidateLookup) and GetActionCharges then
+            local _, maxCharges, _, cooldownDuration = GetActionChargeInfo(slot)
+            if IsGreaterThan(maxCharges, 1) and IsGreaterThan(cooldownDuration, longestCooldown) then
+                longestCooldown = cooldownDuration
             end
         end
     end

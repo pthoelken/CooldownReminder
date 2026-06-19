@@ -23,6 +23,7 @@ CooldownReminderLocales.ruRU = {
     READY = "готово",
     ENABLE_MONITORING = "Включить отслеживание восстановлений",
     SHOW_TITLE = "Показывать название заклинания в напоминании",
+    SHOW_COOLDOWN_DURATION = "Показывать базовое восстановление на значке",
     ENABLE_SOUND = "Воспроизводить звук",
     REMINDER_TOPMOST = "Показывать напоминания поверх других окон",
     SHOW_LOAD_MESSAGE = "Показывать сообщение загрузки в чате",

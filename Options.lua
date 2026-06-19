@@ -656,6 +656,21 @@ function CDR:CreateSettingsPanel(parent)
     loadMessageLabel:SetWordWrap(false)
     UI.loadMessageLabel = loadMessageLabel
 
+    local cooldownDurationCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    UI.cooldownDurationCheck = cooldownDurationCheck
+    cooldownDurationCheck:SetPoint("TOPLEFT", loadMessageCheck, "BOTTOMLEFT", 0, -14)
+    cooldownDurationCheck:SetScript("OnClick", function(button)
+        CDR.db.reminder.showCooldownDuration = button:GetChecked() == true
+        CDR:RefreshReminderAlerts()
+    end)
+
+    local cooldownDurationLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    cooldownDurationLabel:SetPoint("LEFT", cooldownDurationCheck, "RIGHT", 3, 0)
+    cooldownDurationLabel:SetPoint("RIGHT", panel, "RIGHT", -checkboxLabelRightInset, 0)
+    cooldownDurationLabel:SetJustifyH("LEFT")
+    cooldownDurationLabel:SetWordWrap(false)
+    UI.cooldownDurationLabel = cooldownDurationLabel
+
     local soundDropdownLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     soundDropdownLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", labelX, -184)
     soundDropdownLabel:SetWidth(controlX - labelX - 8)
@@ -1116,6 +1131,23 @@ function CDR:GetAceOptionsTable()
                         width = "full",
                         order = 1,
                     },
+                    showCooldownDuration = {
+                        type = "toggle",
+                        name = function()
+                            return CDR:L("SHOW_COOLDOWN_DURATION")
+                        end,
+                        get = function()
+                            return CDR.db.reminder.showCooldownDuration ~= false
+                        end,
+                        set = function(_, value)
+                            CDR.db.reminder.showCooldownDuration = value == true
+                            CDR:RefreshReminderAlerts()
+                            CDR:RefreshConfig()
+                            CDR:NotifyAceOptionsChanged()
+                        end,
+                        width = "full",
+                        order = 2,
+                    },
                     topMost = {
                         type = "toggle",
                         name = function()
@@ -1130,7 +1162,7 @@ function CDR:GetAceOptionsTable()
                             CDR:NotifyAceOptionsChanged()
                         end,
                         width = "full",
-                        order = 2,
+                        order = 3,
                     },
                     layout = {
                         type = "select",
@@ -1147,7 +1179,7 @@ function CDR:GetAceOptionsTable()
                         end,
                         style = "dropdown",
                         width = "double",
-                        order = 3,
+                        order = 4,
                     },
                     mode = {
                         type = "select",
@@ -1167,7 +1199,7 @@ function CDR:GetAceOptionsTable()
                         end,
                         style = "dropdown",
                         width = "double",
-                        order = 4,
+                        order = 5,
                     },
                     scale = {
                         type = "range",
@@ -1185,7 +1217,7 @@ function CDR:GetAceOptionsTable()
                             CDR:NotifyAceOptionsChanged()
                         end,
                         width = "full",
-                        order = 5,
+                        order = 6,
                     },
                     reset = {
                         type = "execute",
@@ -1197,7 +1229,7 @@ function CDR:GetAceOptionsTable()
                             CDR:RefreshConfig()
                             CDR:NotifyAceOptionsChanged()
                         end,
-                        order = 6,
+                        order = 7,
                     },
                     test = {
                         type = "execute",
@@ -1207,7 +1239,7 @@ function CDR:GetAceOptionsTable()
                         func = function()
                             CDR:TestReminder()
                         end,
-                        order = 7,
+                        order = 8,
                     },
                 },
             },
@@ -1403,6 +1435,7 @@ function CDR:RefreshConfigTexts()
     UI.settingsTitle:SetText(L("TAB_SETTINGS"))
     UI.monitoringLabel:SetText(L("ENABLE_MONITORING"))
     UI.showTitleLabel:SetText(L("SHOW_TITLE"))
+    UI.cooldownDurationLabel:SetText(L("SHOW_COOLDOWN_DURATION"))
     UI.soundLabel:SetText(L("ENABLE_SOUND"))
     UI.topMostLabel:SetText(L("REMINDER_TOPMOST"))
     UI.loadMessageLabel:SetText(L("SHOW_LOAD_MESSAGE"))
@@ -1721,6 +1754,9 @@ function CDR:RefreshConfig()
 
     if UI.showTitleCheck then
         UI.showTitleCheck:SetChecked(self.db.reminder.showTitle)
+    end
+    if UI.cooldownDurationCheck then
+        UI.cooldownDurationCheck:SetChecked(self.db.reminder.showCooldownDuration ~= false)
     end
     if UI.monitoringCheck then
         UI.monitoringCheck:SetChecked(self.db.monitoringEnabled ~= false)

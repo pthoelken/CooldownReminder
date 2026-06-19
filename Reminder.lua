@@ -3,6 +3,91 @@ local UI = CDR.UI
 local U = CDR.Utils
 local CONST = CDR.CONST
 
+local function GetFontStringFont(fontString)
+    if fontString and fontString.GetObjectType and fontString:GetObjectType() == "FontString" and fontString.GetFont then
+        local fontPath, _, flags = fontString:GetFont()
+        if fontPath then
+            return fontPath, flags
+        end
+    end
+end
+
+local function GetCooldownCountdownFont(cooldown)
+    local fontPath, flags
+
+    if cooldown then
+        for _, key in ipairs({ "Text", "text", "Countdown", "timer", "Timer" }) do
+            fontPath, flags = GetFontStringFont(cooldown[key])
+            if fontPath then
+                return fontPath, flags
+            end
+        end
+
+        if cooldown.CountdownFrame then
+            for _, key in ipairs({ "Countdown", "Text" }) do
+                fontPath, flags = GetFontStringFont(cooldown.CountdownFrame[key])
+                if fontPath then
+                    return fontPath, flags
+                end
+            end
+        end
+    end
+
+    if cooldown and cooldown.GetRegions then
+        for _, region in ipairs({ cooldown:GetRegions() }) do
+            fontPath, flags = GetFontStringFont(region)
+            if fontPath then
+                return fontPath, flags
+            end
+        end
+    end
+
+    if cooldown and cooldown.GetChildren then
+        for _, child in ipairs({ cooldown:GetChildren() }) do
+            if child and child.GetRegions then
+                for _, region in ipairs({ child:GetRegions() }) do
+                    fontPath, flags = GetFontStringFont(region)
+                    if fontPath then
+                        return fontPath, flags
+                    end
+                end
+            end
+        end
+    end
+
+    local fontHeight
+    if NumberFontNormalHuge and NumberFontNormalHuge.GetFont then
+        fontPath, fontHeight, flags = NumberFontNormalHuge:GetFont()
+        if fontPath then
+            return fontPath, flags
+        end
+    end
+
+    if NumberFontNormal and NumberFontNormal.GetFont then
+        fontPath, fontHeight, flags = NumberFontNormal:GetFont()
+        if fontPath then
+            return fontPath, flags
+        end
+    end
+end
+
+local function ApplyCooldownNumberFont(fontString, cooldown, fontSize)
+    local fontPath, flags = GetCooldownCountdownFont(cooldown)
+    if fontString and fontString.SetFont and fontPath then
+        fontString:SetFont(fontPath, fontSize, flags or "OUTLINE")
+    elseif fontString and fontString.SetFontObject and NumberFontNormal then
+        fontString:SetFontObject(NumberFontNormal)
+    end
+end
+
+local function GetReminderBaseCooldown(addon, spellID, saved)
+    local baseCooldown = tonumber(saved and saved.baseCooldown or 0) or 0
+    if baseCooldown <= CONST.GCD_IGNORE_SECONDS and type(addon.GetWatchedBaseCooldown) == "function" then
+        baseCooldown = tonumber(addon:GetWatchedBaseCooldown(spellID) or 0) or 0
+    end
+    return baseCooldown
+end
+
 function CDR:SaveReminderPosition()
     if not UI.reminder or not self.db then
         return
@@ -182,7 +267,21 @@ function CDR:CreateReminderRow(index)
     end
     row.iconOverlay = iconOverlay
 
-    local charges = iconOverlay:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
+    local baseCooldownText = iconOverlay:CreateFontString(nil, "OVERLAY")
+    ApplyCooldownNumberFont(baseCooldownText, cooldown, 11)
+    baseCooldownText:SetPoint("TOPLEFT", icon, "TOPLEFT", 2, -1)
+    baseCooldownText:SetSize(CONST.ALERT_ICON_SIZE - 4, 14)
+    baseCooldownText:SetJustifyH("LEFT")
+    baseCooldownText:SetTextColor(1, 0.82, 0.2, 1)
+    if baseCooldownText.SetShadowColor then
+        baseCooldownText:SetShadowColor(0, 0, 0, 1)
+        baseCooldownText:SetShadowOffset(1, -1)
+    end
+    baseCooldownText:Hide()
+    row.baseCooldownText = baseCooldownText
+
+    local charges = iconOverlay:CreateFontString(nil, "OVERLAY")
+    ApplyCooldownNumberFont(charges, cooldown, 14)
     charges:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 0)
     charges:SetJustifyH("RIGHT")
     charges:SetTextColor(1, 1, 1, 1)
@@ -287,6 +386,7 @@ function CDR:GetReadyList()
                             icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
                             charges = charges,
                             maxCharges = maxCharges,
+                            baseCooldown = GetReminderBaseCooldown(self, spellID, saved),
                             pulseUntil = state and state.readyPulseUntil or nil,
                         })
                     end
@@ -297,6 +397,7 @@ function CDR:GetReadyList()
                 id = spellID,
                 name = self.testReadySpell.name,
                 icon = self.testReadySpell.icon,
+                baseCooldown = 0,
                 pulseUntil = GetTime() + CONST.READY_PULSE_SECONDS,
             })
         else
@@ -344,13 +445,15 @@ function CDR:GetTimeReminderList()
             end
 
             local charges, maxCharges = self:GetWatchedChargeDisplay(spellID)
-            local cooldownDuration = math.max(remaining or 0, tonumber(saved.baseCooldown or 0) or 0)
+            local baseCooldown = GetReminderBaseCooldown(self, spellID, saved)
+            local cooldownDuration = math.max(remaining or 0, baseCooldown)
             table.insert(spells, {
                 id = spellID,
                 name = saved.name or ("Spell " .. spellID),
                 icon = saved.icon or U.GetSpellTextureCompat(spellID) or 134400,
                 charges = charges,
                 maxCharges = maxCharges,
+                baseCooldown = baseCooldown,
                 onCooldown = onCooldown == true,
                 remaining = remaining or 0,
                 cooldownDuration = cooldownDuration,
@@ -364,6 +467,7 @@ function CDR:GetTimeReminderList()
             id = self.testReadySpell.id,
             name = self.testReadySpell.name,
             icon = self.testReadySpell.icon,
+            baseCooldown = 0,
             onCooldown = false,
             remaining = 0,
             pulseUntil = now + CONST.READY_PULSE_SECONDS,
@@ -399,6 +503,7 @@ function CDR:RefreshReminderAlerts()
     local spells = self:GetReminderDisplayList()
     local count = #spells
     local showTitle = self.db.reminder.showTitle
+    local showCooldownDuration = self.db.reminder.showCooldownDuration ~= false
     local layout = self.db.reminder.layout or "vertical"
     local rowWidth = showTitle and U.Clamp(self.db.reminder.width or 260, 150, CONST.ALERT_MAX_WIDTH) or (CONST.ALERT_ICON_SIZE + 8)
     local rowHeight = CONST.ALERT_ROW_HEIGHT
@@ -465,6 +570,14 @@ function CDR:RefreshReminderAlerts()
             row.charges:SetText("")
             row.charges:Hide()
         end
+        local baseCooldownText = showCooldownDuration and not spell.onCooldown and U.CompactCooldownText(spell.baseCooldown or 0) or ""
+        if baseCooldownText ~= "" then
+            row.baseCooldownText:SetText(baseCooldownText)
+            row.baseCooldownText:Show()
+        else
+            row.baseCooldownText:SetText("")
+            row.baseCooldownText:Hide()
+        end
         row.title:SetText(spell.name)
         if spell.onCooldown then
             row.title:SetTextColor(0.58, 0.58, 0.58)
@@ -481,6 +594,9 @@ function CDR:RefreshReminderAlerts()
         UI.alertRows[index].readyPulseUntil = nil
         if UI.alertRows[index].charges then
             UI.alertRows[index].charges:Hide()
+        end
+        if UI.alertRows[index].baseCooldownText then
+            UI.alertRows[index].baseCooldownText:Hide()
         end
         if UI.alertRows[index].icon then
             if UI.alertRows[index].icon.SetDesaturated then
